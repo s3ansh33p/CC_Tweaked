@@ -592,7 +592,7 @@ function checkFirstTimeBoot()
             elseif line:find("S3_CHN") then
                 finished = finished + 1
                 -- simply set modemChannelOffset to value
-                modemChannelOffset = tonumber(line:sub(9))
+                modemChannelOffset = tonumber(line:sub(8))
             end
             -- check if at end before trying to readline
             if finished ~= numSettings then

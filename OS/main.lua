@@ -237,6 +237,8 @@ function settingsCBModemOffset()
     -- must be 0 < x < 65535
     if val and val > 0 and val < 65535 then
         modemChannelOffset = val
+        updateSetting("S3_CHN", modemChannelOffset)
+
         -- clear last 2 lines and success message
         term.setCursorPos(1, yOffset - 1)
         term.clearLine()
@@ -254,6 +256,7 @@ end
 function settingsCBModemMode()
     --[[ Modem Mode ]]
     modemServerMode = not modemServerMode
+    updateSetting("S3_MODE", tostring(modemServerMode))
 end
 
 -- Function for players tab
@@ -298,18 +301,24 @@ function tabModem()
     -- If in client mode, just listen, if in server mode, listen and send, with 10 second delay
     -- First ask for starting to send/listen
     term.setCursorPos(1, yOffset)
-    if modemServerMode then
-        term.write("Press Enter to start sending...")
-    else
-        term.write("Press Enter to start listening...")
-    end
+    term.write("Enter to Start, q to Quit")
     -- poll for input, if not enter, then return
-    local event = { os.pullEventRaw() }
-    if event[1] ~= "key" or event[2] ~= keys.enter then
-        return false
+    local inLoop = true
+    while inLoop do
+        local event = { os.pullEventRaw() }
+        if event[1] == "key" then
+            if event[2] == keys.enter then
+                inLoop = false
+            elseif event[2] == keys.q or event[2] == keys.left or event[2] == keys.right then
+                -- write cancel msg
+                term.setCursorPos(1, yOffset)
+                term.clearLine()
+                term.write("Cancelled!")
+                return false
+            end
+        end
     end
 
-    debugPrint("Sending/Listening...")
     -- clear line
     term.setCursorPos(1, yOffset)
     term.clearLine()
@@ -321,6 +330,8 @@ function tabModem()
         modem.transmit(modemChannelOffset + 1, modemChannelOffset + 2, "Hello World!")
         -- close modem
         modem.close(modemChannelOffset + 1)
+        term.clearLine()
+        term.write("Sent!")
     else
         term.write("Listening...")
         -- open modem
@@ -344,6 +355,30 @@ local TAB_FUNCTIONS = {
     tabHome,
     tabAbout,
 }
+
+--======[[ FILE SYSTEM FUNCTIONS ]]======--
+
+-- Function to update a setting value
+function updateSetting(setting, value)
+    --[[ Update Setting ]]
+    -- find specific line then write new value
+    local settings = fs.open(".settings", "r")
+    local lines = {}
+    local line = settings.readLine()
+    while line do
+        if line:find(setting) then
+            line = setting .. "=" .. value
+        end
+        table.insert(lines, line)
+        line = settings.readLine()
+    end
+    settings.close()
+    settings = fs.open(".settings", "w")
+    for i = 1, #lines do
+        settings.write(lines[i] .. "\n")
+    end
+    settings.close()
+end
 
 --======[[ WINDOW FUNCTIONS ]]======--
 
@@ -526,12 +561,13 @@ function checkFirstTimeBoot()
     -- check .settings for s3.version
     if fs.exists(".settings") then
         local settings = fs.open(".settings", "r")
-        -- find S3_VER
-        local found = false
+        -- find S3_VER/S3_MODE/S3_CHN
+        local numSettings = 3
+        local finished = 0
         local line = settings.readLine()
-        while line and not found do
+        while line and finished ~= numSettings do
             if line:find("S3_VER") then
-                found = true
+                finished = finished + 1
                 -- if S3_VER is not equal to current version,
                 -- then show update message
                 if line:find(OS_VERSION) == nil then
@@ -549,18 +585,28 @@ function checkFirstTimeBoot()
                         .. OS_VERSION .. " from " .. oldVersion .. ".")
                     sleep(1)
                 end
+            elseif line:find("S3_MODE") then
+                finished = finished + 1
+                -- simply set modemServerMode to value
+                modemServerMode = line:sub(9) == "true"
+            elseif line:find("S3_CHN") then
+                finished = finished + 1
+                -- simply set modemChannelOffset to value
+                modemChannelOffset = tonumber(line:sub(9))
             end
             -- check if at end before trying to readline
-            if not found then
+            if finished ~= numSettings then
                 line = settings.readLine()
             end
         end
 
-        if not found then
-            -- if S3_VER is not found, then add it
+        if not line then
+            -- if S3_VER/MODE is not found, then add it
             settings.close()
             settings = fs.open(".settings", "a")
             settings.write("S3_VER=" .. OS_VERSION)
+            settings.write("\nS3_MODE=" .. tostring(modemServerMode))
+            settings.write("\nS3_CHN=" .. modemChannelOffset)
             settings.close()
             firstTimeBoot()
         end
@@ -568,6 +614,8 @@ function checkFirstTimeBoot()
         -- if .settings does not exist, then create it
         local settings = fs.open(".settings", "w")
         settings.write("S3_VER=" .. OS_VERSION)
+        settings.write("\nS3_MODE=" .. tostring(modemServerMode))
+        settings.write("\nS3_CHN=" .. modemChannelOffset)
         settings.close()
         firstTimeBoot()
     end

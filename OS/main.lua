@@ -336,16 +336,17 @@ function tabModem()
     else
         term.write("Listening...")
         -- open modem
-        modem.open(modemChannelOffset + 2)
+        modem.open(modemChannelOffset + 1)
         -- listen for message
         -- wait for modem_message
         local inLoop = true
         while inLoop do
             local event = { os.pullEventRaw() }
             if event[1] == "modem_message" then
+                debugPrint("Modem Message!")
                 term.setCursorPos(1, yOffset)
                 term.clearLine()
-                term.write("Message: " .. event[5])
+                term.write("Message: " .. event[4])
                 inLoop = false
                 -- else if q or < or >, then quit
             elseif event[1] == "key" then
@@ -359,7 +360,7 @@ function tabModem()
             end
         end
         -- close modem
-        modem.close(modemChannelOffset + 2)
+        modem.close(modemChannelOffset + 1)
     end
 
     return false

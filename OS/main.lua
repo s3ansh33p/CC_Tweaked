@@ -188,7 +188,7 @@ function tabSettings()
                     sCurSelected = event[4] - 2
                     -- call callback
                     if sCurSelected == 1 then
-                        settingsCBModem()
+                        settingsCBModemOffset()
                     elseif sCurSelected == 2 then
                         settingsCBModemMode()
                     end

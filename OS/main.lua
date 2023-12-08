@@ -1,7 +1,7 @@
 -- Custom OS for Computer Craft with Advanced Peripherals
 -- Designed to run on pocket computer
 -- Authors: Sean
--- Version: 0.1
+-- Version: 0.2
 -- Date: 2023-12-09
 
 -- [[ CUSTOM CONFIG ]] --
@@ -14,12 +14,18 @@ local systemColors = {
     selectedText = colors.black,
 }
 
+-- Modem channel offset
+local modemChannelOffset = 1000
+
+-- If server of client mode for modem
+local modemServerMode = true
+
 -- [[ END CUSTOM CONFIG ]] --
 
 --======[[ OS VARIABLES ]]======--
 
 local OS_NAME = "SeanOS"
-local OS_VERSION = "0.1"
+local OS_VERSION = "0.2"
 local OS_DATE = "2023-12-09"
 local DEBUG_MODE = true
 
@@ -46,30 +52,291 @@ local pDetectedByType = {}
 function tabHome()
     term.write("Hello World!")
     term.setCursorPos(1, 3)
-    -- show all peripherals
-    checkPeripherals()
+
+    return false
 end
 
 -- Function for about tab
 function tabAbout()
-    term.write("About")
-    -- Version info
-    term.setCursorPos(1, 3)
+    local yOffset = 2
+    term.setCursorPos(1, yOffset)
     term.write("Version: " .. OS_VERSION .. " (" .. OS_DATE .. ")")
+
+    -- computer label
+    yOffset = yOffset + 1
+    term.setCursorPos(1, yOffset)
+    local label = os.getComputerLabel()
+    if label then
+        term.write("Computer Label: " .. label)
+    else
+        term.write("Computer Label: None")
+    end
+
+    -- window size
+    yOffset = yOffset + 1
+    term.setCursorPos(1, yOffset)
+    local w, h = term.getSize()
+    term.write("Window Size: " .. w .. "x" .. h)
+
+    -- disk space
+    yOffset = yOffset + 1
+    term.setCursorPos(1, yOffset)
+    term.write("Disk Space: " .. fs.getFreeSpace("/") .. "/" .. fs.getCapacity("/"))
+    -- in terms of KB
+    yOffset = yOffset + 1
+    term.setCursorPos(1, yOffset)
+    term.write("Disk Space: " .. math.floor(fs.getFreeSpace("/") / 1024) .. "/" .. math.floor(fs.getCapacity("/") / 1024) .. " KB")
+
     -- Peripherals
-    term.setCursorPos(1, 4)
+
+    yOffset = yOffset + 1
+    term.setCursorPos(1, yOffset)
     term.write("Peripherals:")
-    local yOffset = 5
+
     for k, v in pairs(pDetectedByType) do
+        yOffset = yOffset + 1
         term.setCursorPos(1, yOffset)
         term.write(k .. ":")
-        yOffset = yOffset + 1
         for i = 1, #v do
+            yOffset = yOffset + 1
             term.setCursorPos(1, yOffset)
             term.write("  " .. v[i])
-            yOffset = yOffset + 1
         end
     end
+
+    return false
+end
+
+-- Function for settings tab
+function tabSettings()
+
+    local yOffset = 2
+
+    -- menu with a few different options, using keyboard and mouse for vertical selection
+    local SETTING_OPTS = {
+        "",
+        "",
+    }
+
+    local sCurSelected = 1
+    local sMax = #SETTING_OPTS
+
+    local inLoop = true
+    while inLoop do
+        -- render settings
+        yOffset = 2
+        term.setCursorPos(1, yOffset)
+        term.write("Settings:")
+        yOffset = yOffset + 1
+
+        -- add modem offset to string
+        SETTING_OPTS[1] = "Modem Chn Offset (" .. modemChannelOffset .. ")"
+
+        if modemServerMode then
+            SETTING_OPTS[2] = "In SERVER Mode"
+        else
+            SETTING_OPTS[2] = "In CLIENT Mode"
+        end
+
+        for i = 1, sMax do
+            if i == sCurSelected then
+                term.setBackgroundColor(systemColors.selectedBackground)
+                term.setTextColor(systemColors.selectedText)
+            else
+                term.setBackgroundColor(systemColors.background)
+                term.setTextColor(systemColors.text)
+            end
+            term.setCursorPos(1, yOffset)
+            term.clearLine()
+            term.write(SETTING_OPTS[i])
+            yOffset = yOffset + 1
+        end
+
+        -- Resets
+        term.setBackgroundColor(systemColors.background)
+        term.setTextColor(systemColors.text)
+        
+
+        -- handle input
+        local event = { os.pullEventRaw() }
+        if event[1] == "key" then
+            if event[2] == keys.up then
+                if sCurSelected > 1 then
+                    sCurSelected = sCurSelected - 1
+                end
+            elseif event[2] == keys.down then
+                if sCurSelected < sMax then
+                    sCurSelected = sCurSelected + 1
+                end
+            elseif event[2] == keys.enter then
+                if sCurSelected == 1 then
+                    settingsCBModemOffset()
+                elseif sCurSelected == 2 then
+                    settingsCBModemMode()
+                end
+                -- [ check for tab switching ]
+            elseif event[2] == keys.left then
+                inLoop = false
+                -- change tab
+                if tCurSelected > 1 then
+                    tCurSelected = tCurSelected - 1
+                end
+            end
+        elseif event[1] == "mouse_click" then
+            if event[2] == 1 then
+                if event[4] >= 2 and event[4] <= 2 + sMax then
+                    sCurSelected = event[4] - 2
+                    -- call callback
+                    if sCurSelected == 1 then
+                        settingsCBModem()
+                    elseif sCurSelected == 2 then
+                        settingsCBModemMode()
+                    end
+                elseif event[4] == 1 then
+                    inLoop = false
+                    -- change tab based on x
+                    local xOffset = 1
+                    for i = 1, tMax do
+                        -- Note: Need to -1 from #TABS[i] because of the
+                        -- space between tabs
+                        if event[3] >= xOffset and event[3] <= xOffset + #TABS[i] - 1
+                        then
+                            tCurSelected = i
+                            break
+                        end
+                        xOffset = xOffset + #TABS[i] + 1
+                    end
+                end
+            end
+        end
+    end
+            
+    return true
+end
+
+-- Callbacks for settings
+function settingsCBModemOffset() 
+    --[[ Modem Channel Offset ]]
+    -- Go to bottom of screen - 2
+    local w, h = term.getSize()
+    local yOffset = h - 2
+
+    -- clear bottom 2 lines
+    term.setCursorPos(1, yOffset - 1)
+    term.clearLine()
+    term.setCursorPos(1, yOffset)
+    term.clearLine()
+
+    term.setCursorPos(1, yOffset)
+    term.write("Modem Chn Offset: " .. modemChannelOffset)
+    yOffset = yOffset + 1
+    term.setCursorPos(1, yOffset)
+    term.write("Enter new offset: ")
+    local newOffset = read()
+    local val = tonumber(newOffset)
+    -- must be 0 < x < 65535
+    if val and val > 0 and val < 65535 then
+        modemChannelOffset = val
+        -- clear last 2 lines and success message
+        term.setCursorPos(1, yOffset - 1)
+        term.clearLine()
+        term.setCursorPos(1, yOffset)
+        term.clearLine()
+        term.write("Success!")
+    else
+        term.setCursorPos(1, yOffset)
+        term.clearLine()
+        term.write("Invalid offset (0 < x < 65535)")
+    end
+
+end
+
+function settingsCBModemMode()
+    --[[ Modem Mode ]]
+    modemServerMode = not modemServerMode
+end
+
+-- Function for players tab
+function tabPlayers()
+    local yOffset = 2
+    term.setCursorPos(1, yOffset)
+    term.write("Players:")
+    yOffset = yOffset + 1
+
+    local detector = peripheral.find("playerDetector")
+    local players = detector.getOnlinePlayers()
+
+    -- just show playername and xyz below
+    for i = 1, #players do
+        local player = players[i]
+        local pos = detector.getPlayerPos(player)
+        term.setCursorPos(1, yOffset)
+        term.write(player)
+        yOffset = yOffset + 1
+        term.setCursorPos(1, yOffset)
+        term.write("X: " .. pos.x .. " Y: " .. pos.y .. " Z: " .. pos.z)
+        yOffset = yOffset + 1
+    end
+
+    return false
+end
+
+-- Function for modem tab
+function tabModem()
+
+    local modem = peripheral.find("modem")
+    if not modem then
+        term.write("No modem found!")
+        return false
+    end
+
+    local yOffset = 2
+    term.setCursorPos(1, yOffset)
+    term.write("Modem:")
+    yOffset = yOffset + 1
+
+    -- If in client mode, just listen, if in server mode, listen and send, with 10 second delay
+    -- First ask for starting to send/listen
+    term.setCursorPos(1, yOffset)
+    if modemServerMode then
+        term.write("Press Enter to start sending...")
+    else
+        term.write("Press Enter to start listening...")
+    end
+    -- poll for input, if not enter, then return
+    local event = { os.pullEventRaw() }
+    if event[1] ~= "key" or event[2] ~= keys.enter then
+        return false
+    end
+
+    debugPrint("Sending/Listening...")
+    -- clear line
+    term.setCursorPos(1, yOffset)
+    term.clearLine()
+    if modemServerMode then
+        term.write("Sending...")
+        -- open modem
+        modem.open(modemChannelOffset + 1)
+        -- send message
+        modem.transmit(modemChannelOffset + 1, modemChannelOffset + 2, "Hello World!")
+        -- close modem
+        modem.close(modemChannelOffset + 1)
+    else
+        term.write("Listening...")
+        -- open modem
+        modem.open(modemChannelOffset + 2)
+        -- listen for message
+        local event = { os.pullEventRaw() }
+        if event[1] == "modem_message" then
+            term.setCursorPos(1, yOffset)
+            term.clearLine()
+            term.write("Message: " .. event[5])
+        end
+        -- close modem
+        modem.close(modemChannelOffset + 2)
+    end
+
+    return false
 end
 
 -- Function map for each tab
@@ -81,7 +348,7 @@ local TAB_FUNCTIONS = {
 --======[[ WINDOW FUNCTIONS ]]======--
 
 -- Function to render the tabs and currently selected
-function renderTabs()
+function renderTabs(skipExec)
     term.clear()
     local xOffset = 1
     for i = 1, tMax do
@@ -102,10 +369,19 @@ function renderTabs()
     term.setTextColor(systemColors.text)
     term.setCursorPos(1, 2)
     
-    if TAB_FUNCTIONS[tCurSelected] then
-        TAB_FUNCTIONS[tCurSelected]()
-    else 
-        term.write("No function for tab " .. tCurSelected)
+    if not skipExec then
+        if TAB_FUNCTIONS[tCurSelected] then
+            local prevTab = tCurSelected
+            local cleanupTab = TAB_FUNCTIONS[tCurSelected]()
+            -- Top prevent double inputs needed form sub menus
+            if cleanupTab then
+                if prevTab ~= tCurSelected then
+                    renderTabs(false)
+                end
+            end
+        else 
+            term.write("No function for tab " .. tCurSelected)
+        end
     end
 end
 
@@ -134,7 +410,7 @@ function handleKeyBoardInput(key)
     
     -- Render tabs if needed
     if doTabsRender then
-        renderTabs()
+        renderTabs(false)
     end
 
     return quitting
@@ -166,7 +442,7 @@ function handleMouseInput(event)
 
     -- Render tabs if needed
     if doTabsRender then
-        renderTabs()
+        renderTabs(false)
     end
     
 end
@@ -209,6 +485,27 @@ function checkPeripherals()
     end
 end
 
+-- Function to determine what features are available
+-- Mainly checking for playerDetector
+function determineFeatures()
+
+    if pDetectedByType["playerDetector"] then
+        --[[ Player Detector ]]
+        table.insert(TABS, "Players")
+        table.insert(TAB_FUNCTIONS, tabPlayers)
+        tMax = #TABS
+        debugPrint("Player Detector found!")
+    end
+    if pDetectedByType["modem"] then
+        --[[ Modem ]]
+        table.insert(TABS, "Modem")
+        table.insert(TAB_FUNCTIONS, tabModem)
+        tMax = #TABS
+        debugPrint("Modem found!")
+    end
+
+end
+
 --======[[ MAIN FUNCTIONS ]]======--
 
 -- First time boot callback
@@ -232,7 +529,7 @@ function checkFirstTimeBoot()
         -- find S3_VER
         local found = false
         local line = settings.readLine()
-        while line do
+        while line and not found do
             if line:find("S3_VER") then
                 found = true
                 -- if S3_VER is not equal to current version,
@@ -253,7 +550,10 @@ function checkFirstTimeBoot()
                     sleep(1)
                 end
             end
-            line = settings.readLine()
+            -- check if at end before trying to readline
+            if not found then
+                line = settings.readLine()
+            end
         end
 
         if not found then
@@ -276,6 +576,15 @@ end
 -- Function to handle exiting
 function handleExit()
     term.clear()
+    term.setCursorPos(1, 1)
+end
+
+-- Function to print message if in DEBUG mode
+function debugPrint(message)
+    if DEBUG_MODE then
+        print(message)
+        sleep(0.2)
+    end
 end
 
 -- Main function to simply render tabs, then say hello world, sleep(1) then exit
@@ -283,8 +592,26 @@ function main()
 
     -- Check if first time boot
     checkFirstTimeBoot()
+    
+    -- Loading
+    term.clear()
+    term.setCursorPos(1, 1)
+    term.write("Loading...")
 
-    renderTabs()
+    checkPeripherals()
+    -- determine what features are available
+    determineFeatures()
+    -- add settings tab
+    table.insert(TABS, "Settings")
+    table.insert(TAB_FUNCTIONS, tabSettings)
+    tMax = #TABS
+
+    term.setCursorPos(1, 1)
+    term.clearLine()
+    term.write("Loaded!")
+    
+
+    renderTabs(false)
     local inLoop = true
     while inLoop do
         inLoop = waitForInput()

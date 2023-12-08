@@ -330,6 +330,7 @@ function tabModem()
         modem.transmit(modemChannelOffset + 1, modemChannelOffset + 2, "Hello World!")
         -- close modem
         modem.close(modemChannelOffset + 1)
+        term.setCursorPos(1, yOffset)
         term.clearLine()
         term.write("Sent!")
     else
@@ -337,11 +338,25 @@ function tabModem()
         -- open modem
         modem.open(modemChannelOffset + 2)
         -- listen for message
-        local event = { os.pullEventRaw() }
-        if event[1] == "modem_message" then
-            term.setCursorPos(1, yOffset)
-            term.clearLine()
-            term.write("Message: " .. event[5])
+        -- wait for modem_message
+        local inLoop = true
+        while inLoop do
+            local event = { os.pullEventRaw() }
+            if event[1] == "modem_message" then
+                term.setCursorPos(1, yOffset)
+                term.clearLine()
+                term.write("Message: " .. event[5])
+                inLoop = false
+                -- else if q or < or >, then quit
+            elseif event[1] == "key" then
+                if event[2] == keys.q or event[2] == keys.left or event[2] == keys.right then
+                    inLoop = false
+                    -- replace line with cancelled
+                    term.setCursorPos(1, yOffset)
+                    term.clearLine()
+                    term.write("Cancelled!")
+                end
+            end
         end
         -- close modem
         modem.close(modemChannelOffset + 2)

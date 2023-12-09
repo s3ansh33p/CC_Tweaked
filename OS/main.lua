@@ -1,7 +1,7 @@
 -- Custom OS for Computer Craft with Advanced Peripherals
 -- Designed to run on pocket computer
 -- Authors: Sean
--- Version: 0.2
+-- Version: 0.3
 -- Date: 2023-12-09
 
 -- [[ CUSTOM CONFIG ]] --
@@ -28,7 +28,7 @@ local modemServerMode = true
 --======[[ OS VARIABLES ]]======--
 
 local OS_NAME = "SeanOS"
-local OS_VERSION = "0.2"
+local OS_VERSION = "0.3"
 local OS_DATE = "2023-12-09"
 local DEBUG_MODE = true
 
@@ -106,7 +106,9 @@ function tabHome()
             if not modemPoll then
                 for _, player in pairs(detector.getOnlinePlayers()) do
                     local pos = detector.getPlayerPos(player)
-                    local message = "1|" .. player .. "|" .. pos.x .. "|" .. pos.y .. "|" .. pos.z .. "|" .. pos.pitch .. "|" .. pos.yaw
+                    local newPitch = math.floor(pos.pitch * 100) / 100
+                    local newYaw = math.floor(pos.yaw * 100) / 100
+                    local message = "1|" .. player .. "|" .. pos.x .. "|" .. pos.y .. "|" .. pos.z .. "|" .. newPitch .. "|" .. newYaw
                     -- send message
                     modem.transmit(modemChannelOffset + 1, modemChannelOffset + 2, message)
                     -- show on screen
@@ -115,7 +117,7 @@ function tabHome()
                     term.clearLine()
                     term.write(message)
                 end
-                -- sleep(0.1)
+                sleep(0.5)
             else
                 local event = { os.pullEventRaw() }
                 if event[1] == "playerChangedDimension" then
@@ -189,19 +191,32 @@ function tabHome()
                     term.write("Player: " .. split[2])
                     term.setCursorPos(1, 4)
                     term.clearLine()
-                    term.write("From: " .. split[3] .. " To: " .. split[4])
+                    term.write("From: " .. split[3])
+                    term.setCursorPos(1, 5)
+                    term.clearLine()
+                    term.write("To: " .. split[4])
                 elseif split[1] == "3" then
                     -- PLAYER JOIN
                     term.write("Player Joined:")
                     term.setCursorPos(1, 3)
                     term.clearLine()
                     term.write("Player: " .. split[2])
+                    -- clear other two lines
+                    term.setCursorPos(1, 4)
+                    term.clearLine()
+                    term.setCursorPos(1, 5)
+                    term.clearLine()
                 elseif split[1] == "4" then
                     -- PLAYER LEAVE
                     term.write("Player Left:")
                     term.setCursorPos(1, 3)
                     term.clearLine()
                     term.write("Player: " .. split[2])
+                    -- clear other two lines
+                    term.setCursorPos(1, 4)
+                    term.clearLine()
+                    term.setCursorPos(1, 5)
+                    term.clearLine()
                 end
 
                 -- else if q or < or >, then quit

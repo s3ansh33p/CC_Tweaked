@@ -49,7 +49,7 @@ end
 local function getRelativeDirection(relX, relZ)
     -- calcualte angle then pass into getYawDirection
     local angle = math.atan2(relZ, relX) * 180 / math.pi
-    print("Angle: " .. angle)
+    -- print("Angle: " .. angle)
     -- convert angle to yaw
     local yaw = angle + 90
     -- print("Yaw: " .. yaw)
@@ -69,7 +69,7 @@ while true do
 
     -- dont clear terminal, just clear line and rewrite with new data if changed
     for idx, player in pairs(detector.getOnlinePlayers()) do
-        local idx = detector.getPlayerIndex(player)
+        local pos = detector.getPlayerPos(player)
         if playerMap[player] ~= pos then
 
             -- clear line

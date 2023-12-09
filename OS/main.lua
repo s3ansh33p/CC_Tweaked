@@ -339,25 +339,32 @@ function tabModem()
         modem.open(modemChannelOffset + 1)
         -- listen for message
         -- wait for modem_message
+        local cancelled = false
         local inLoop = true
         while inLoop do
             local event = { os.pullEventRaw() }
             if event[1] == "modem_message" then
-                debugPrint("Modem Message!")
                 term.setCursorPos(1, yOffset)
                 term.clearLine()
-                term.write("Message: " .. event[4])
+                term.write("Message: " .. event[5])
                 inLoop = false
                 -- else if q or < or >, then quit
             elseif event[1] == "key" then
                 if event[2] == keys.q or event[2] == keys.left or event[2] == keys.right then
                     inLoop = false
-                    -- replace line with cancelled
-                    term.setCursorPos(1, yOffset)
-                    term.clearLine()
-                    term.write("Cancelled!")
+                    cancelled = true
+                end
+            else if event[1] == "mouse_click" then
+                if event[2] == 1 then
+                    inLoop = false
+                    cancelled = true
                 end
             end
+        end
+        if cancelled then
+            term.setCursorPos(1, yOffset)
+            term.clearLine()
+            term.write("Cancelled!")
         end
         -- close modem
         modem.close(modemChannelOffset + 1)

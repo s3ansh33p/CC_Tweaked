@@ -116,8 +116,8 @@ function tabHome()
                     term.setCursorPos(1, 2)
                     term.clearLine()
                     term.write(message)
+                    sleep(1)
                 end
-                sleep(0.5)
             else
                 local event = { os.pullEventRaw() }
                 if event[1] == "playerChangedDimension" then

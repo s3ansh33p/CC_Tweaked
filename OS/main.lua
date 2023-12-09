@@ -23,6 +23,9 @@ local modemPoll = false
 -- If server of client mode for modem
 local modemServerMode = true
 
+-- Client side, delay if non position update
+local nonPosUpdateTime = 5
+
 -- [[ END CUSTOM CONFIG ]] --
 
 --======[[ OS VARIABLES ]]======--
@@ -195,6 +198,7 @@ function tabHome()
                     term.setCursorPos(1, 5)
                     term.clearLine()
                     term.write("To: " .. split[4])
+                    sleep(nonPosUpdateTime)
                 elseif split[1] == "3" then
                     -- PLAYER JOIN
                     term.write("Player Joined:")
@@ -206,6 +210,7 @@ function tabHome()
                     term.clearLine()
                     term.setCursorPos(1, 5)
                     term.clearLine()
+                    sleep(nonPosUpdateTime)
                 elseif split[1] == "4" then
                     -- PLAYER LEAVE
                     term.write("Player Left:")
@@ -217,6 +222,7 @@ function tabHome()
                     term.clearLine()
                     term.setCursorPos(1, 5)
                     term.clearLine()
+                    sleep(nonPosUpdateTime)
                 end
 
                 -- else if q or < or >, then quit

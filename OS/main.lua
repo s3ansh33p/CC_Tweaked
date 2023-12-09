@@ -17,6 +17,9 @@ local systemColors = {
 -- Modem channel offset
 local modemChannelOffset = 1000
 
+-- If polling for modem (blocking for join/leaves)
+local modemPoll = false
+
 -- If server of client mode for modem
 local modemServerMode = true
 
@@ -32,8 +35,8 @@ local DEBUG_MODE = true
 --======[[ GLOBAL VARIABLES ]]======--
 
 local TABS = {
-    "Home",
-    "About",
+    "Info",
+    "Main",
 }
 
 local tCurSelected = 1
@@ -48,15 +51,176 @@ local pDetectedByType = {}
 
 --======[[ TAB FUNCTIONS ]]======--
 
--- Function for home tab
+-- Function for home/main tab
 function tabHome()
-    term.write("Hello World!")
-    term.setCursorPos(1, 3)
+    term.write("Event Log:")
+    -- similar to modem tab, but creating a heartbeat depending
+    -- on if in server or client mode
+    local modem = peripheral.find("modem")
+    if not modem then
+        term.write("No modem found!")
+        return false
+    end
 
+    -- if server side, check that playerDetector is connected
+    if modemServerMode then
+        if not pDetectedByType["playerDetector"] then
+            term.write("No playerDetector found!")
+            return false
+        end
+    end
+
+    -- check if wanting to start program, as will be locked to this tab
+    term.write("Enter to Start, q to Quit")
+
+    -- poll for input, if not enter, then return
+    local inLoop = true
+    while inLoop do
+        local event = { os.pullEventRaw() }
+        if event[1] == "key" then
+            if event[2] == keys.enter then
+                inLoop = false
+            elseif event[2] == keys.q or event[2] == keys.left or event[2] == keys.right then
+                -- write cancel msg
+                term.write("Cancelled!")
+                return false
+            end
+        end
+    end
+
+    -- clear line
+    term.clearLine()
+    term.write("Starting...")
+    -- open modem
+    modem.open(modemChannelOffset + 1)
+
+    -- if server side, then listen for playerDetector events
+    if modemServerMode then
+        -- listen for playerDetector events
+        local detector = peripheral.find("playerDetector")
+
+        -- loop
+        inLoop = true
+        while inLoop do
+            -- if not polling
+            if not modemPoll then
+                for _, player in pairs(detector.getOnlinePlayers()) do
+                    local pos = detector.getPlayerPos(player)
+                    local message = "1|" .. player .. "|" .. pos.x .. "|" .. pos.y .. "|" .. pos.z .. "|" .. pos.pitch .. "|" .. pos.yaw
+                    -- send message
+                    modem.transmit(modemChannelOffset + 1, modemChannelOffset + 2, message)
+                    -- show on screen
+                    -- replace
+                    term.setCursorPos(1, 2)
+                    term.clearLine()
+                    term.write(message)
+                end
+                -- sleep(0.1)
+            else
+                local event = { os.pullEventRaw() }
+                if event[1] == "playerChangedDimension" then
+                    local message = "2|" .. event[2] .. "|" .. event[3] .. "|" .. event[4]
+                    -- send message
+                    modem.transmit(modemChannelOffset + 1, modemChannelOffset + 2, message)
+                    -- show on screen
+                    -- replace
+                    term.setCursorPos(1, 2)
+                    term.clearLine()
+                    term.write(message)
+                elseif event[1] == "playerJoined" then
+                    local message = "3|" .. event[2]
+                    -- send message
+                    modem.transmit(modemChannelOffset + 1, modemChannelOffset + 2, message)
+                    -- show on screen
+                    -- replace
+                    term.setCursorPos(1, 2)
+                    term.clearLine()
+                    term.write(message)
+                elseif event[1] == "playerLeft" then
+                    local message = "4|" .. event[2]
+                    -- send message
+                    modem.transmit(modemChannelOffset + 1, modemChannelOffset + 2, message)
+                    -- show on screen
+                    -- replace
+                    term.setCursorPos(1, 2)
+                    term.clearLine()
+                    term.write(message)
+                end
+            end
+
+        end
+    else
+        -- listen for modem_message
+        local inLoop = true
+        while inLoop do
+            local event = { os.pullEventRaw() }
+            if event[1] == "modem_message" then
+
+                term.setCursorPos(1, 2)
+                term.clearLine()
+                -- decode with |
+                local message = event[5]
+                local split = {}
+                for s in message:gmatch("[^|]+") do
+                    table.insert(split, s)
+                end
+                -- 1 == PLAYER POSITION
+                -- 2 == PLAYER CHANGED DIMENSION
+                -- 3 == PLAYER JOIN
+                -- 4 == PLAYER LEAVE
+
+                if split[1] == "1" then
+                    -- PLAYER POSITION
+                    term.write("Player Position:")
+                    term.setCursorPos(1, 3)
+                    term.clearLine()
+                    term.write("Player: " .. split[2])
+                    term.setCursorPos(1, 4)
+                    term.clearLine()
+                    term.write("X: " .. split[3] .. " Y: " .. split[4] .. " Z: " .. split[5])
+                    term.setCursorPos(1, 5)
+                    term.clearLine()
+                    term.write("Pitch: " .. split[6] .. " Yaw: " .. split[7])
+                elseif split[1] == "2" then
+                    -- PLAYER CHANGED DIMENSION
+                    term.write("Player Changed Dimension:")
+                    term.setCursorPos(1, 3)
+                    term.clearLine()
+                    term.write("Player: " .. split[2])
+                    term.setCursorPos(1, 4)
+                    term.clearLine()
+                    term.write("From: " .. split[3] .. " To: " .. split[4])
+                elseif split[1] == "3" then
+                    -- PLAYER JOIN
+                    term.write("Player Joined:")
+                    term.setCursorPos(1, 3)
+                    term.clearLine()
+                    term.write("Player: " .. split[2])
+                elseif split[1] == "4" then
+                    -- PLAYER LEAVE
+                    term.write("Player Left:")
+                    term.setCursorPos(1, 3)
+                    term.clearLine()
+                    term.write("Player: " .. split[2])
+                end
+
+                -- else if q or < or >, then quit
+            elseif event[1] == "key" then
+                if event[2] == keys.q or event[2] == keys.left or event[2] == keys.right then
+                    inLoop = false
+                end
+            elseif event[1] == "mouse_click" then
+                if event[2] == 1 then
+                    inLoop = false
+                end
+            end
+        end
+    end
+        
     return false
 end
 
--- Function for about tab
+-- Function for about/info tab
 function tabAbout()
     local yOffset = 2
     term.setCursorPos(1, yOffset)
@@ -116,6 +280,7 @@ function tabSettings()
     local SETTING_OPTS = {
         "",
         "",
+        "",
     }
 
     local sCurSelected = 1
@@ -136,6 +301,12 @@ function tabSettings()
             SETTING_OPTS[2] = "In SERVER Mode"
         else
             SETTING_OPTS[2] = "In CLIENT Mode"
+        end
+
+        if modemPoll then
+            SETTING_OPTS[3] = "Polling Events"
+        else
+            SETTING_OPTS[3] = "Position Events"
         end
 
         for i = 1, sMax do
@@ -173,6 +344,8 @@ function tabSettings()
                     settingsCBModemOffset()
                 elseif sCurSelected == 2 then
                     settingsCBModemMode()
+                elseif sCurSelected == 3 then
+                    settingsCBModemPoll()
                 end
                 -- [ check for tab switching ]
             elseif event[2] == keys.left then
@@ -191,6 +364,8 @@ function tabSettings()
                         settingsCBModemOffset()
                     elseif sCurSelected == 2 then
                         settingsCBModemMode()
+                    elseif sCurSelected == 3 then
+                        settingsCBModemPoll()
                     end
                 elseif event[4] == 1 then
                     inLoop = false
@@ -257,6 +432,12 @@ function settingsCBModemMode()
     --[[ Modem Mode ]]
     modemServerMode = not modemServerMode
     updateSetting("S3_MODE", tostring(modemServerMode))
+end
+
+function settingsCBModemPoll()
+    --[[ Modem Poll ]]
+    modemPoll = not modemPoll
+    updateSetting("S3_POLL", tostring(modemPoll))
 end
 
 -- Function for players tab
@@ -354,7 +535,7 @@ function tabModem()
                     inLoop = false
                     cancelled = true
                 end
-            else if event[1] == "mouse_click" then
+            elseif event[1] == "mouse_click" then
                 if event[2] == 1 then
                     inLoop = false
                     cancelled = true
@@ -375,8 +556,8 @@ end
 
 -- Function map for each tab
 local TAB_FUNCTIONS = {
-    tabHome,
     tabAbout,
+    tabHome,
 }
 
 --======[[ FILE SYSTEM FUNCTIONS ]]======--
@@ -584,8 +765,8 @@ function checkFirstTimeBoot()
     -- check .settings for s3.version
     if fs.exists(".settings") then
         local settings = fs.open(".settings", "r")
-        -- find S3_VER/S3_MODE/S3_CHN
-        local numSettings = 3
+        -- find S3_VER/S3_MODE/S3_CHN/S3_POLL
+        local numSettings = 4
         local finished = 0
         local line = settings.readLine()
         while line and finished ~= numSettings do
@@ -612,6 +793,10 @@ function checkFirstTimeBoot()
                 finished = finished + 1
                 -- simply set modemServerMode to value
                 modemServerMode = line:sub(9) == "true"
+            elseif line:find("S3_POLL") then
+                finished = finished + 1
+                -- simply set modemPoll to value
+                modemPoll = line:sub(9) == "true"
             elseif line:find("S3_CHN") then
                 finished = finished + 1
                 -- simply set modemChannelOffset to value
@@ -630,6 +815,7 @@ function checkFirstTimeBoot()
             settings.write("S3_VER=" .. OS_VERSION)
             settings.write("\nS3_MODE=" .. tostring(modemServerMode))
             settings.write("\nS3_CHN=" .. modemChannelOffset)
+            settings.write("\nS3_POLL=" .. tostring(modemPoll))
             settings.close()
             firstTimeBoot()
         end
@@ -639,6 +825,7 @@ function checkFirstTimeBoot()
         settings.write("S3_VER=" .. OS_VERSION)
         settings.write("\nS3_MODE=" .. tostring(modemServerMode))
         settings.write("\nS3_CHN=" .. modemChannelOffset)
+        settings.write("\nS3_POLL=" .. tostring(modemPoll))
         settings.close()
         firstTimeBoot()
     end

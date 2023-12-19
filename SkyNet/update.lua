@@ -10,7 +10,8 @@ local fileMap = {
     ["track"] = "KaH6ZGmw",
     ["update"] = "QRA0Xx21",
     ["diskspace"] = "qVUuNHtY",
-    ["s3"] = "AkgyTdY0"
+    ["s3"] = "AkgyTdY0",
+    ["pscan"] = "vtM0ChSt"
 }
 
 -- get pastebin id from map

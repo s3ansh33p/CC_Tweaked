@@ -1,8 +1,8 @@
 -- Custom OS for Computer Craft with Advanced Peripherals
 -- Designed to run on pocket computer
 -- Authors: Sean
--- Version: 0.3
--- Date: 2023-12-09
+-- Version: 0.4
+-- Date: 2023-12-19
 
 -- [[ CUSTOM CONFIG ]] --
 
@@ -20,6 +20,12 @@ local modemChannelOffset = 1000
 -- If polling for modem (blocking for join/leaves)
 local modemPoll = false
 
+-- Type of polling/looping events
+-- POS - position
+-- ENV - environment
+-- GEO - geo scanner
+local eventType = "POS"
+
 -- If server of client mode for modem
 local modemServerMode = true
 
@@ -31,8 +37,8 @@ local nonPosUpdateTime = 5
 --======[[ OS VARIABLES ]]======--
 
 local OS_NAME = "SeanOS"
-local OS_VERSION = "0.3"
-local OS_DATE = "2023-12-09"
+local OS_VERSION = "0.4"
+local OS_DATE = "2023-12-19"
 local DEBUG_MODE = true
 
 --======[[ GLOBAL VARIABLES ]]======--
@@ -45,12 +51,58 @@ local TABS = {
 local tCurSelected = 1
 local tMax = #TABS
 
+-- Helper variable for keeping track of time
+local prevTicks = 0
+
 -- Map for peripherals detected
 -- e.g. pDetected["left"] = "modem"
 local pDetected = {}
 -- Map for peripherals detected by type
 -- e.g. pDetectedByType["modem"] = {"left", "right"}
 local pDetectedByType = {}
+
+--======[[ TIME FUNCTIONS ]]======--
+-- function to covert ticks to time
+function ticksToTime(ticks)
+    local days = math.floor(ticks / 24000)
+    local years = math.floor(days / 365)
+    local ticksInDay = ticks % 24000
+    local hours = math.floor(ticksInDay / 1000)
+    local minutes = math.floor((ticksInDay % 1000) / 16.66666666666667)
+    local seconds = math.floor((ticksInDay % 1000) % 16.66666666666667)
+    return {
+        seconds = seconds,
+        minutes = minutes,
+        hours = hours,
+        days = days,
+        years = years
+    }
+end
+
+-- function to get phase of day
+function getPhaseOfDay(ticks)
+    local percentThroughPhase = 0
+    local phase = "UNKNOWN"
+    if ticks >= 0 and ticks < 12000 then
+        phase = "DAYTIME"
+        percentThroughPhase = ticks / 12000
+    elseif ticks >= 12000 and ticks < 13000 then
+        phase = "SUNSET"
+        percentThroughPhase = (ticks - 12000) / 1000
+    elseif ticks >= 13000 and ticks < 23000 then
+        phase = "NIGHTTIME"
+        percentThroughPhase = (ticks - 13000) / 10000
+    else
+        phase = "SUNRISE"
+        percentThroughPhase = (ticks - 23000) / 1000
+    end
+    -- round to 2 d.p.
+    percentThroughPhase = math.floor(percentThroughPhase * 10000) / 100
+    return {
+        phase = phase,
+        percentThroughPhase = percentThroughPhase
+    }
+end
 
 --======[[ TAB FUNCTIONS ]]======--
 
@@ -67,8 +119,33 @@ function tabHome()
 
     -- if server side, check that playerDetector is connected
     if modemServerMode then
+        -- must have at least one detector
+        local isDetector = false
         if not pDetectedByType["playerDetector"] then
             term.write("No playerDetector found!")
+            -- return false
+        else
+            isDetector = true
+        end
+
+        -- check for environmentDetector
+        if not pDetectedByType["environmentDetector"] then
+            term.write("No environmentDetector found!")
+            -- return false
+        else
+            isDetector = true
+        end
+
+        -- check for geoScanner
+        if not pDetectedByType["geoScanner"] then
+            term.write("No geoScanner found!")
+            -- return false
+        else
+            isDetector = true
+        end
+
+        if not isDetector then
+            term.write("No detectors found!")
             return false
         end
     end
@@ -100,57 +177,113 @@ function tabHome()
     -- if server side, then listen for playerDetector events
     if modemServerMode then
         -- listen for playerDetector events
-        local detector = peripheral.find("playerDetector")
+
+        -- determine type of detector to use
+        local detector = nil
+        if eventType == "POS" then
+            detector = peripheral.find("playerDetector")
+        elseif eventType == "ENV" then
+            detector = peripheral.find("environmentDetector")
+        elseif eventType == "GEO" then
+            detector = peripheral.find("geoScanner")
+        end
+
+        -- check if nil
+        if not detector then
+            term.write("Ensure that correct detector is connected!")
+            return false
+        end
 
         -- loop
         inLoop = true
         while inLoop do
-            -- if not polling
-            if not modemPoll then
-                for _, player in pairs(detector.getOnlinePlayers()) do
-                    local pos = detector.getPlayerPos(player)
-                    local newPitch = math.floor(pos.pitch * 100) / 100
-                    local newYaw = math.floor(pos.yaw * 100) / 100
-                    local message = "1|" .. player .. "|" .. pos.x .. "|" .. pos.y .. "|" .. pos.z .. "|" .. newPitch .. "|" .. newYaw
-                    -- send message
-                    modem.transmit(modemChannelOffset + 1, modemChannelOffset + 2, message)
-                    -- show on screen
-                    -- replace
-                    term.setCursorPos(1, 2)
-                    term.clearLine()
-                    term.write(message)
-                    sleep(1)
+            -- clear lines 2 and 3
+            term.setCursorPos(1, 2)
+            term.clearLine()
+            term.setCursorPos(1, 3)
+            term.clearLine()
+
+            -- if pos
+            if eventType == "POS" then
+                -- if not polling
+                if not modemPoll then
+                    for _, player in pairs(detector.getOnlinePlayers()) do
+                        local pos = detector.getPlayerPos(player)
+                        local newPitch = math.floor(pos.pitch * 100) / 100
+                        local newYaw = math.floor(pos.yaw * 100) / 100
+                        local message = "1|" .. player .. "|" .. pos.x .. "|" .. pos.y .. "|" .. pos.z .. "|" .. newPitch .. "|" .. newYaw
+                        -- send message
+                        modem.transmit(modemChannelOffset + 1, modemChannelOffset + 2, message)
+                        -- show on screen
+                        -- replace
+                        term.setCursorPos(1, 2)
+                        term.write(message)
+                        sleep(1)
+                    end
+                else
+                    local event = { os.pullEventRaw() }
+                    if event[1] == "playerChangedDimension" then
+                        local message = "2|" .. event[2] .. "|" .. event[3] .. "|" .. event[4]
+                        -- send message
+                        modem.transmit(modemChannelOffset + 1, modemChannelOffset + 2, message)
+                        -- show on screen
+                        -- replace
+                        term.setCursorPos(1, 2)
+                        term.write(message)
+                    elseif event[1] == "playerJoined" then
+                        local message = "3|" .. event[2]
+                        -- send message
+                        modem.transmit(modemChannelOffset + 1, modemChannelOffset + 2, message)
+                        -- show on screen
+                        -- replace
+                        term.setCursorPos(1, 2)
+                        term.write(message)
+                    elseif event[1] == "playerLeft" then
+                        local message = "4|" .. event[2]
+                        -- send message
+                        modem.transmit(modemChannelOffset + 1, modemChannelOffset + 2, message)
+                        -- show on screen
+                        -- replace
+                        term.setCursorPos(1, 2)
+                        term.write(message)
+                    end
                 end
-            else
-                local event = { os.pullEventRaw() }
-                if event[1] == "playerChangedDimension" then
-                    local message = "2|" .. event[2] .. "|" .. event[3] .. "|" .. event[4]
-                    -- send message
+
+                -- else other detectors
+            elseif eventType == "ENV" then
+                -- is not affected by polling / position
+                -- get time
+                local ticks = detector.getTime()
+                -- send packet 
+                local message = "5|" .. ticks
+                modem.transmit(modemChannelOffset + 1, modemChannelOffset + 2, message)
+                -- show on screen
+                -- replace
+                term.setCursorPos(1, 2)
+                term.write(message)
+
+                local ticksInHour = (ticks % 24000) % 1000
+                
+                if prevTicks > ticksInHour then
+                    -- get moon id
+                    local moonId = detector.getMoonId()
+                    -- get moon name
+                    local moonName = detector.getMoonName()
+                    -- send new packet
+                    message = "6|" .. moonId .. "|" .. moonName
                     modem.transmit(modemChannelOffset + 1, modemChannelOffset + 2, message)
                     -- show on screen
                     -- replace
-                    term.setCursorPos(1, 2)
-                    term.clearLine()
-                    term.write(message)
-                elseif event[1] == "playerJoined" then
-                    local message = "3|" .. event[2]
-                    -- send message
-                    modem.transmit(modemChannelOffset + 1, modemChannelOffset + 2, message)
-                    -- show on screen
-                    -- replace
-                    term.setCursorPos(1, 2)
-                    term.clearLine()
-                    term.write(message)
-                elseif event[1] == "playerLeft" then
-                    local message = "4|" .. event[2]
-                    -- send message
-                    modem.transmit(modemChannelOffset + 1, modemChannelOffset + 2, message)
-                    -- show on screen
-                    -- replace
-                    term.setCursorPos(1, 2)
-                    term.clearLine()
+                    term.setCursorPos(1, 3)
                     term.write(message)
                 end
+                -- set prev ticks to cur ticks
+                prevTicks = ticksInHour
+                sleep(0.2)
+            elseif eventType == "GEO" then
+                -- not implemented
+                term.setCursorPos(1, 2)
+                term.write("Not implemented yet!")
             end
 
         end
@@ -173,6 +306,18 @@ function tabHome()
                 -- 2 == PLAYER CHANGED DIMENSION
                 -- 3 == PLAYER JOIN
                 -- 4 == PLAYER LEAVE
+                -- 5 == TIME UPDATE
+                -- 6 == MOON UPDATE
+
+                local yOffset = 3
+                -- if 5 then offset by extra 4
+                if split[1] == "5" then
+                    yOffset = yOffset + 4
+                end
+                -- if 6 then offset by extra 8
+                if split[1] == "6" then
+                    yOffset = yOffset + 8
+                end
 
                 if split[1] == "1" then
                     -- PLAYER POSITION
@@ -189,40 +334,72 @@ function tabHome()
                 elseif split[1] == "2" then
                     -- PLAYER CHANGED DIMENSION
                     term.write("Player Changed Dimension:")
-                    term.setCursorPos(1, 3)
+                    term.setCursorPos(1, yOffset)
                     term.clearLine()
                     term.write("Player: " .. split[2])
-                    term.setCursorPos(1, 4)
+                    term.setCursorPos(1, yOffset + 1)
                     term.clearLine()
                     term.write("From: " .. split[3])
-                    term.setCursorPos(1, 5)
+                    term.setCursorPos(1, yOffset + 2)
                     term.clearLine()
                     term.write("To: " .. split[4])
                     sleep(nonPosUpdateTime)
                 elseif split[1] == "3" then
                     -- PLAYER JOIN
                     term.write("Player Joined:")
-                    term.setCursorPos(1, 3)
+                    term.setCursorPos(1, yOffset)
                     term.clearLine()
                     term.write("Player: " .. split[2])
                     -- clear other two lines
-                    term.setCursorPos(1, 4)
+                    term.setCursorPos(1, yOffset + 1)
                     term.clearLine()
-                    term.setCursorPos(1, 5)
+                    term.setCursorPos(1, yOffset + 2)
                     term.clearLine()
                     sleep(nonPosUpdateTime)
                 elseif split[1] == "4" then
                     -- PLAYER LEAVE
                     term.write("Player Left:")
-                    term.setCursorPos(1, 3)
+                    term.setCursorPos(1, yOffset)
                     term.clearLine()
                     term.write("Player: " .. split[2])
                     -- clear other two lines
-                    term.setCursorPos(1, 4)
+                    term.setCursorPos(1, yOffset + 1)
                     term.clearLine()
-                    term.setCursorPos(1, 5)
+                    term.setCursorPos(1, yOffset + 2)
                     term.clearLine()
                     sleep(nonPosUpdateTime)
+                elseif split[1] == "5" then
+                    -- TIME UPDATE
+                    term.write("Time Update:")
+                    term.setCursorPos(1, yOffset)
+                    term.clearLine()
+                    term.write("Ticks: " .. split[2])
+                    -- set next line to days :: hours :: mins
+                    local ticks = tonumber(split[2])
+                    local time = ticksToTime(ticks)
+                    term.setCursorPos(1, yOffset + 1)
+                    term.clearLine()
+                    local timeString = "Day: " .. time.days .. " Hour: " .. time.hours .. " Min: " .. time.minutes
+                    term.write(timeString)
+                    -- other line to phase of the day
+                    term.setCursorPos(1, yOffset + 2)
+                    term.clearLine()
+                    -- get % through phase
+                    local phaseInfo = getPhaseOfDay(ticks % 24000)
+                    local phaseString = "Phase: " .. phaseInfo.phase .. " (" .. phaseInfo.percentThroughPhase .. "%)"
+                    term.write(phaseString)
+                elseif split[1] == "6" then
+                    -- MOON UPDATE
+                    term.write("Moon Update:")
+                    term.setCursorPos(1, yOffset)
+                    term.clearLine()
+                    term.write("Moon Id: " .. split[2])
+                    term.setCursorPos(1, yOffset + 1)
+                    term.clearLine()
+                    term.write("Moon Name: " .. split[3])
+                    -- clear other two lines
+                    term.setCursorPos(1, yOffset + 2)
+                    term.clearLine()
                 end
 
                 -- else if q or < or >, then quit
@@ -299,9 +476,10 @@ function tabSettings()
 
     -- menu with a few different options, using keyboard and mouse for vertical selection
     local SETTING_OPTS = {
-        "",
-        "",
-        "",
+        "", -- modem channel
+        "", -- server/client mode
+        "", -- position/polling
+        "", -- event type
     }
 
     local sCurSelected = 1
@@ -327,7 +505,15 @@ function tabSettings()
         if modemPoll then
             SETTING_OPTS[3] = "Polling Events"
         else
-            SETTING_OPTS[3] = "Position Events"
+            SETTING_OPTS[3] = "Looping Events"
+        end
+
+        if eventType == "POS" then
+            SETTING_OPTS[4] = "Position Events"
+        elseif eventType == "ENV" then
+            SETTING_OPTS[4] = "Environment Events"
+        elseif eventType == "GEO" then
+            SETTING_OPTS[4] = "Geo Scanner Events"
         end
 
         for i = 1, sMax do
@@ -367,6 +553,8 @@ function tabSettings()
                     settingsCBModemMode()
                 elseif sCurSelected == 3 then
                     settingsCBModemPoll()
+                elseif sCurSelected == 4 then
+                    settingsCBEventType()
                 end
                 -- [ check for tab switching ]
             elseif event[2] == keys.left then
@@ -387,6 +575,8 @@ function tabSettings()
                         settingsCBModemMode()
                     elseif sCurSelected == 3 then
                         settingsCBModemPoll()
+                    elseif sCurSelected == 4 then
+                        settingsCBEventType()
                     end
                 elseif event[4] == 1 then
                     inLoop = false
@@ -459,6 +649,25 @@ function settingsCBModemPoll()
     --[[ Modem Poll ]]
     modemPoll = not modemPoll
     updateSetting("S3_POLL", tostring(modemPoll))
+end
+
+function settingsCBEventType()
+    --[[ Event Type ]]
+    -- Cycle through
+    local eventTypes = {"POS", "ENV", "GEO"}
+    local curIndex = 1
+    for i = 1, #eventTypes do
+        if eventType == eventTypes[i] then
+            curIndex = i
+            break
+        end
+    end
+    curIndex = curIndex + 1
+    if curIndex > #eventTypes then
+        curIndex = 1
+    end
+    eventType = eventTypes[curIndex]
+    updateSetting("S3_EVT", eventType)
 end
 
 -- Function for players tab
@@ -571,6 +780,39 @@ function tabModem()
         -- close modem
         modem.close(modemChannelOffset + 1)
     end
+
+    return false
+end
+
+-- Function for environment tab
+function tabEnvironment() 
+    local envDetector = peripheral.find("environmentDetector")
+    if not envDetector then
+        term.write("No environmentDetector found!")
+        return false
+    end
+
+    local ticks = envDetector.getTime()
+    local time = ticksToTime(ticks)
+    local ticksInDay = ticks % 24000
+    local timeString = "Day: " .. time.days .. " Hour: " .. time.hours .. " Min: " .. time.minutes
+    local phaseInfo = getPhaseOfDay(ticks % 24000)
+    local phaseString = "Phase: " .. phaseInfo.phase .. " (" .. phaseInfo.percentThroughPhase .. "%)"
+    local moonString = "Moon: " .. envDetector.getMoonName()
+
+    local yOffset = 2
+    term.setCursorPos(1, yOffset)
+    term.write("Environment:")
+    -- TIME AND MOON INFORMATION
+    yOffset = yOffset + 1
+    term.setCursorPos(1, yOffset)
+    term.write(timeString)
+    yOffset = yOffset + 1
+    term.setCursorPos(1, yOffset)
+    term.write(phaseString)
+    yOffset = yOffset + 1
+    term.setCursorPos(1, yOffset)
+    term.write(moonString)
 
     return false
 end
@@ -754,15 +996,25 @@ function determineFeatures()
         table.insert(TABS, "Players")
         table.insert(TAB_FUNCTIONS, tabPlayers)
         tMax = #TABS
-        debugPrint("Player Detector found!")
+        -- debugPrint("Player Detector found!")
+    end
+    -- env
+    if pDetectedByType["environmentDetector"] then
+        --[[ Environment Detector ]]
+        table.insert(TABS, "Environment")
+        table.insert(TAB_FUNCTIONS, tabEnvironment)
+        tMax = #TABS
+        -- debugPrint("Environment Detector found!")s
     end
     if pDetectedByType["modem"] then
         --[[ Modem ]]
         table.insert(TABS, "Modem")
         table.insert(TAB_FUNCTIONS, tabModem)
         tMax = #TABS
-        debugPrint("Modem found!")
+        -- debugPrint("Modem found!")
     end
+
+    -- TODO: Add tabs for environmentDetector and geoScanner
 
 end
 
@@ -786,8 +1038,8 @@ function checkFirstTimeBoot()
     -- check .settings for s3.version
     if fs.exists(".settings") then
         local settings = fs.open(".settings", "r")
-        -- find S3_VER/S3_MODE/S3_CHN/S3_POLL
-        local numSettings = 4
+        -- find S3_VER/S3_MODE/S3_CHN/S3_POLL/S3_EVT
+        local numSettings = 5
         local finished = 0
         local line = settings.readLine()
         while line and finished ~= numSettings do
@@ -822,6 +1074,10 @@ function checkFirstTimeBoot()
                 finished = finished + 1
                 -- simply set modemChannelOffset to value
                 modemChannelOffset = tonumber(line:sub(8))
+            elseif line:find("S3_EVT") then
+                finished = finished + 1
+                -- simply set eventType to value
+                eventType = line:sub(8)
             end
             -- check if at end before trying to readline
             if finished ~= numSettings then
@@ -837,6 +1093,7 @@ function checkFirstTimeBoot()
             settings.write("\nS3_MODE=" .. tostring(modemServerMode))
             settings.write("\nS3_CHN=" .. modemChannelOffset)
             settings.write("\nS3_POLL=" .. tostring(modemPoll))
+            settings.write("\nS3_EVT=" .. eventType)
             settings.close()
             firstTimeBoot()
         end
@@ -847,6 +1104,7 @@ function checkFirstTimeBoot()
         settings.write("\nS3_MODE=" .. tostring(modemServerMode))
         settings.write("\nS3_CHN=" .. modemChannelOffset)
         settings.write("\nS3_POLL=" .. tostring(modemPoll))
+        settings.write("\nS3_EVT=" .. eventType)
         settings.close()
         firstTimeBoot()
     end
@@ -861,8 +1119,9 @@ end
 -- Function to print message if in DEBUG mode
 function debugPrint(message)
     if DEBUG_MODE then
+        term.clear()
         print(message)
-        sleep(0.2)
+        sleep(1)
     end
 end
 

@@ -23,7 +23,7 @@ local modemPoll = false
 -- Type of polling/looping events
 -- POS - position
 -- ENV - environment
--- GEO - geo scanner
+-- INV - inventory (will allow for global communication with AE2)
 local eventType = "POS"
 
 -- If server of client mode for modem
@@ -60,6 +60,35 @@ local pDetected = {}
 -- Map for peripherals detected by type
 -- e.g. pDetectedByType["modem"] = {"left", "right"}
 local pDetectedByType = {}
+
+-- https://minecraft.fandom.com/wiki/Durability
+local DEFAULT_MAX_ARMOR_DURABILITY = {
+    ["minecraft:turtle_helmet"] = 275,
+    ["minecraft:leather_helmet"] = 55,
+    ["minecraft:golden_helmet"] = 77,
+    ["minecraft:chainmail_helmet"] = 165,
+    ["minecraft:iron_helmet"] = 165,
+    ["minecraft:diamond_helmet"] = 363,
+    ["minecraft:netherite_helmet"] = 407,
+    ["minecraft:leather_chestplate"] = 80,
+    ["minecraft:golden_chestplate"] = 112,
+    ["minecraft:chainmail_chestplate"] = 240,
+    ["minecraft:iron_chestplate"] = 240,
+    ["minecraft:diamond_chestplate"] = 528,
+    ["minecraft:netherite_chestplate"] = 592,
+    ["minecraft:leather_leggings"] = 75,
+    ["minecraft:golden_leggings"] = 105,
+    ["minecraft:chainmail_leggings"] = 225,
+    ["minecraft:iron_leggings"] = 225,
+    ["minecraft:diamond_leggings"] = 495,
+    ["minecraft:netherite_leggings"] = 555,
+    ["minecraft:leather_boots"] = 65,
+    ["minecraft:golden_boots"] = 91,
+    ["minecraft:chainmail_boots"] = 195,
+    ["minecraft:iron_boots"] = 195,
+    ["minecraft:diamond_boots"] = 429,
+    ["minecraft:netherite_boots"] = 481
+}
 
 --======[[ TIME FUNCTIONS ]]======--
 -- function to covert ticks to time
@@ -104,6 +133,25 @@ function getPhaseOfDay(ticks)
     }
 end
 
+--======[[ TEXT FUNCTIONS ]]======--
+-- local text = 'some really really really long text that needs to be wrapped severely'
+-- local wrapped = wrapText(text, 15)
+-- print(table.concat(wrapped, '\n'))
+-- https://www.computercraft.info/forums2/index.php?/topic/14274-text-wrapping/
+
+function wrapText(text, limit)
+    local lines = {}
+    local curLine = ''
+    for word in text:gmatch('%S+%s*') do
+            curLine = curLine .. word
+            if #curLine + #word >= limit then
+                    lines[#lines + 1] = curLine
+                    curLine = ''
+            end
+    end
+    return lines
+end
+
 --======[[ TAB FUNCTIONS ]]======--
 
 -- Function for home/main tab
@@ -123,7 +171,6 @@ function tabHome()
         local isDetector = false
         if not pDetectedByType["playerDetector"] then
             term.write("No playerDetector found!")
-            -- return false
         else
             isDetector = true
         end
@@ -131,15 +178,13 @@ function tabHome()
         -- check for environmentDetector
         if not pDetectedByType["environmentDetector"] then
             term.write("No environmentDetector found!")
-            -- return false
         else
             isDetector = true
         end
 
-        -- check for geoScanner
-        if not pDetectedByType["geoScanner"] then
-            term.write("No geoScanner found!")
-            -- return false
+        -- check for inventoryManager
+        if not pDetectedByType["inventoryManager"] then
+            term.write("No inventoryManager found!")
         else
             isDetector = true
         end
@@ -184,8 +229,8 @@ function tabHome()
             detector = peripheral.find("playerDetector")
         elseif eventType == "ENV" then
             detector = peripheral.find("environmentDetector")
-        elseif eventType == "GEO" then
-            detector = peripheral.find("geoScanner")
+        elseif eventType == "INV" then
+            detector = peripheral.find("inventoryManager")
         end
 
         -- check if nil
@@ -280,10 +325,51 @@ function tabHome()
                 -- set prev ticks to cur ticks
                 prevTicks = ticksInHour
                 sleep(0.2)
-            elseif eventType == "GEO" then
-                -- not implemented
+            elseif eventType == "INV" then
+                -- is not affected by polling
+                -- get armor
+                local armor = detector.getArmor()
+                -- send packet
+                local message = "7|"
+                local SLOTSMAP = {
+                    [103] = "Helmet    ",
+                    [102] = "Chestplate",
+                    [101] = "Leggings  ",
+                    [100] = "Boots     "
+                }
+                for i = 1, #armor do
+                    local item = armor[i].name
+                    local slot = armor[i].slot
+                    -- convert to generic
+                    local genericName = SLOTSMAP[slot]
+
+                    local damage = armor[i].nbt.Damage
+                    local maxDurability = DEFAULT_MAX_ARMOR_DURABILITY[item]
+                    if maxDurability == nil then
+                        message = message .. genericName .. " " .. damage .. " / ?"
+                    else 
+                        local durabilityLeft = maxDurability - damage
+                        local durabilityPercent = math.floor((durabilityLeft / maxDurability) * 100)
+                        message = message .. genericName .. " " .. damage .. " / " .. maxDurability .. " (" .. durabilityPercent .. "%)"
+                    end
+                    if i < #armor then
+                        message = message .. "|"
+                    end
+                end
+                -- finally send
+                modem.transmit(modemChannelOffset + 1, modemChannelOffset + 2, message)
+                -- show on screen
+                -- replace
                 term.setCursorPos(1, 2)
-                term.write("Not implemented yet!")
+                -- term.write(#armor .. " " .. message)
+                -- wrap text
+                local termWidth, termHeight = term.getSize()
+                local wrapped = wrapText(message, termWidth)
+                for i = 1, #wrapped do
+                    term.setCursorPos(1, 2 + i - 1)
+                    term.write(wrapped[i])
+                end
+                sleep(1)
             end
 
         end
@@ -308,6 +394,7 @@ function tabHome()
                 -- 4 == PLAYER LEAVE
                 -- 5 == TIME UPDATE
                 -- 6 == MOON UPDATE
+                -- 7 == ARMOR UPDATE
 
                 local yOffset = 3
                 -- if 5 then offset by extra 4
@@ -317,6 +404,10 @@ function tabHome()
                 -- if 6 then offset by extra 8
                 if split[1] == "6" then
                     yOffset = yOffset + 8
+                end
+                -- if 7 then offset by extra 11
+                if split[1] == "7" then
+                    yOffset = yOffset + 11
                 end
 
                 if split[1] == "1" then
@@ -397,9 +488,20 @@ function tabHome()
                     term.setCursorPos(1, yOffset + 1)
                     term.clearLine()
                     term.write("Moon Name: " .. split[3])
-                    -- clear other two lines
-                    term.setCursorPos(1, yOffset + 2)
+                elseif split[1] == "7" then
+                    -- ARMOR UPDATE
+                    term.write("Armor Update:")
+                    term.setCursorPos(1, yOffset)
                     term.clearLine()
+                    -- for split[2 onwards]
+                    local yOffset = yOffset + 1
+                    for i = 2, #split do
+                        term.setCursorPos(1, yOffset)
+                        term.clearLine()
+                        term.write(split[i])
+                        yOffset = yOffset + 1
+                    end
+
                 end
 
                 -- else if q or < or >, then quit
@@ -512,8 +614,8 @@ function tabSettings()
             SETTING_OPTS[4] = "Position Events"
         elseif eventType == "ENV" then
             SETTING_OPTS[4] = "Environment Events"
-        elseif eventType == "GEO" then
-            SETTING_OPTS[4] = "Geo Scanner Events"
+        elseif eventType == "INV" then
+            SETTING_OPTS[4] = "Inventory Events"
         end
 
         for i = 1, sMax do
@@ -654,7 +756,7 @@ end
 function settingsCBEventType()
     --[[ Event Type ]]
     -- Cycle through
-    local eventTypes = {"POS", "ENV", "GEO"}
+    local eventTypes = {"POS", "ENV", "INV"}
     local curIndex = 1
     for i = 1, #eventTypes do
         if eventType == eventTypes[i] then
@@ -815,6 +917,43 @@ function tabEnvironment()
     term.write(moonString)
 
     return false
+end
+
+-- Function for inventory tab
+function tabInventory()
+    local invManager = peripheral.find("inventoryManager")
+    if not invManager then
+        term.write("No inventoryManager found!")
+        return false
+    end
+
+    local yOffset = 2
+    term.setCursorPos(1, yOffset)
+    -- just show armour information
+    term.write("Armor:")
+    yOffset = yOffset + 1
+    term.setCursorPos(1, yOffset)
+    yOffset = yOffset + 1
+    local armor = invManager.getArmor()
+
+    for i, armorPiece in ipairs(armor) do
+        -- get each item and it's nbt damage and then do % to get durability left
+        local item = armorPiece.name
+        local damage = armorPiece.nbt.Damage
+        local maxDurability = DEFAULT_MAX_ARMOR_DURABILITY[item]
+        if maxDurability == nil then
+            print("No max durability found for " .. item)
+        else 
+            local durabilityLeft = maxDurability - damage
+            local durabilityPercent = math.floor((durabilityLeft / maxDurability) * 100)
+            print(i, armorPiece.displayName)
+            print("Durability: " .. durabilityPercent .. "% (" .. durabilityLeft .. "/" .. maxDurability .. ")")
+        end
+        
+    end
+
+    return false
+
 end
 
 -- Function map for each tab
@@ -1004,7 +1143,15 @@ function determineFeatures()
         table.insert(TABS, "Environment")
         table.insert(TAB_FUNCTIONS, tabEnvironment)
         tMax = #TABS
-        -- debugPrint("Environment Detector found!")s
+        -- debugPrint("Environment Detector found!")
+    end
+    -- inventory
+    if pDetectedByType["inventoryManager"] then
+        --[[ Inventory Manager ]]
+        table.insert(TABS, "Inventory")
+        table.insert(TAB_FUNCTIONS, tabInventory)
+        tMax = #TABS
+        -- debugPrint("Inventory Manager found!")
     end
     if pDetectedByType["modem"] then
         --[[ Modem ]]
@@ -1013,8 +1160,6 @@ function determineFeatures()
         tMax = #TABS
         -- debugPrint("Modem found!")
     end
-
-    -- TODO: Add tabs for environmentDetector and geoScanner
 
 end
 

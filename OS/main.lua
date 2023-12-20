@@ -23,7 +23,8 @@ local modemPoll = false
 -- Type of polling/looping events
 -- POS - position
 -- ENV - environment
--- INV - inventory (will allow for global communication with AE2)
+-- INV - inventory for armor updates
+-- MEI - ME + Inventory (transfer items wirelessly)
 local eventType = "POS"
 
 -- If server of client mode for modem
@@ -152,6 +153,44 @@ function wrapText(text, limit)
     return lines
 end
 
+--======[[ ME BRIDGE / INVENTORY FUNCTIONS ]]======--
+
+-- function to get item from ME to chest on left
+local function getItemFromMeToChest(me, itemName, count)
+    me.exportItemToPeripheral({ name = itemName, count = count }, "left")
+    print("Exported " .. count .. " " .. itemName .. " to chest on left")
+end
+
+-- function to move item from chest on left to player inventory via manager
+local function getItemFromChestToPlayer(manager, itemName, count)
+    -- check if the item already is in player inventory
+    -- if so get slot where not full
+    -- if not get free slot
+    -- if no free slot return
+    -- if free slot add item to player
+    local playerInventory = manager.getItems()
+    local slot = nil
+    for i, item in ipairs(playerInventory) do
+        if item.name == itemName then
+            if item.count < item.maxStackSize then
+                slot = item.slot
+                break
+            end
+        end
+    end
+    if slot == nil then
+        print("No slot found with " .. itemName .. " not full")
+        slot = manager.getFreeSlot()
+    end
+    if slot == nil then
+        print("No free slot found")
+        return
+    end
+    print("Next free slot is " .. slot)
+    print("Adding " .. count .. " " .. itemName .. " to player")
+    manager.addItemToPlayer("front", count, slot, itemName)
+end
+
 --======[[ TAB FUNCTIONS ]]======--
 
 -- Function for home/main tab
@@ -218,6 +257,10 @@ function tabHome()
     term.write("Starting...")
     -- open modem
     modem.open(modemChannelOffset + 1)
+    -- for MEI modem
+    if eventType == "MEI" then
+        modem.open(modemChannelOffset + 3)
+    end
 
     -- if server side, then listen for playerDetector events
     if modemServerMode then
@@ -225,12 +268,20 @@ function tabHome()
 
         -- determine type of detector to use
         local detector = nil
+        local meBridge = nil
         if eventType == "POS" then
             detector = peripheral.find("playerDetector")
         elseif eventType == "ENV" then
             detector = peripheral.find("environmentDetector")
         elseif eventType == "INV" then
             detector = peripheral.find("inventoryManager")
+        elseif eventType == "MEI" then
+            detector = peripheral.find("inventoryManager")
+            meBridge = peripheral.find("meBridge")
+            if not meBridge then
+                term.write("Ensure that ME Bridge is connected!")
+                return false
+            end
         end
 
         -- check if nil
@@ -370,142 +421,300 @@ function tabHome()
                     term.write(wrapped[i])
                 end
                 sleep(1)
+            elseif eventType == "MEI" then
+                -- client will be sending on channel offset + 3
+                -- server will be listening on channel offset + 4
+                -- check for message
+                -- main loop
+                local inServerLoop = true
+                while inServerLoop do
+                    local event = { os.pullEventRaw() }
+                    if event[1] == "modem_message" then
+                        -- to be implemented
+
+                        -- packet format
+                        -- FROM CLIENT TO SERVER 
+                        -- 1|<item name>|<item count>
+                        -- server side to determine next slot and will take from ME to Player Inventory
+                        
+                        -- FROM SERVER TO CLIENT
+                        -- then communicate back to client if success, or error
+                        -- 8|<response message>
+                        -- client side to display message
+
+                        -- decode with |
+                        local message = event[5]
+                        local split = {}
+                        for s in message:gmatch("[^|]+") do
+                            table.insert(split, s)
+                        end
+
+                        -- check if 1
+                        if split[1] == "1" then
+                            -- check if 3
+                            if #split == 3 then
+                                -- get item name and count
+                                local itemName = split[2]
+                                local itemCount = tonumber(split[3])
+                                -- check if item exists in ME
+                                local meItem = meBridge.getItem({ name = itemName })
+                                if not meItem then
+                                    -- send error message
+                                    local responseMessage = "8|Item " .. itemName .. " not found in ME"
+                                    modem.transmit(modemChannelOffset + 1, modemChannelOffset + 3, responseMessage)
+                                    -- show on screen
+                                    -- replace
+                                    term.setCursorPos(1, 2)
+                                    term.write(responseMessage)
+                                else
+                                    -- get next free slot
+                                    local slot = detector.getFreeSlot()
+                                    if slot == nil then
+                                        -- send error message
+                                        local responseMessage = "8|No free slot found"
+                                        modem.transmit(modemChannelOffset + 1, modemChannelOffset + 3, responseMessage)
+                                        -- show on screen
+                                        -- replace
+                                        term.setCursorPos(1, 2)
+                                        term.write(responseMessage)
+                                    else
+                                        -- get item from ME to chest
+                                        getItemFromMeToChest(meBridge, itemName, itemCount)
+                                        -- get item from chest to player
+                                        getItemFromChestToPlayer(detector, itemName, itemCount)
+                                        -- send success message
+                                        local responseMessage = "8|Added " .. itemCount .. " " .. itemName .. " to player"
+                                        modem.transmit(modemChannelOffset + 1, modemChannelOffset + 3, responseMessage)
+                                        -- show on screen
+                                        -- replace
+                                        term.setCursorPos(1, 2)
+                                        term.write(responseMessage)
+                                    end
+                                end
+                            else
+                                -- send error message
+                                local responseMessage = "8|Invalid packet format"
+                                modem.transmit(modemChannelOffset + 1, modemChannelOffset + 3, responseMessage)
+                                -- show on screen
+                                -- replace
+                                term.setCursorPos(1, 2)
+                                term.write(responseMessage)
+                            end
+                        end
+
+                    -- Server side kill switch
+                    elseif event[1] == "key" then
+                        if event[2] == keys.q or event[2] == keys.left or event[2] == keys.right then
+                            inServerLoop = false
+                        end
+                    elseif event[1] == "mouse_click" then
+                        if event[2] == 1 then
+                            inServerLoop = false
+                        end
+                    end
+                end
+                inLoop = false
             end
 
         end
     else
-        -- listen for modem_message
-        local inLoop = true
-        while inLoop do
+        -- check client event type - i.e if in MEI, then client will communicate with server
+        if eventType == "MEI" then 
+            -- get prompt for user
+            -- setup prompt
+            term.setCursorPos(1, 2)
+            term.clearLine()
+            term.write("Item:")
+            local itemName = read()
+            -- if not starts with minecraft:, add it, but if it has :, skip
+            if not string.find(itemName, ":") then
+                itemName = "minecraft:" .. itemName
+            end
+            -- get count
+            term.setCursorPos(1, 3)
+            term.clearLine()
+            term.write("Count:")
+            local itemCount = tonumber(read())
+            -- send packet
+            local packet = "1|" .. itemName .. "|" .. itemCount
+            modem.transmit(modemChannelOffset + 1, modemChannelOffset + 4, packet)
+            -- show on screen
+            -- replace
+            term.setCursorPos(1, 2)
+            term.write(packet)
+            -- listen for response
+            local inClientLoop = true
+            while inClientLoop do
+                local event = { os.pullEventRaw() }
+                if event[1] == "modem_message" then
+                    -- decode with |
+                    local message = event[5]
+                    local split = {}
+                    for s in message:gmatch("[^|]+") do
+                        table.insert(split, s)
+                    end
+                    -- check if 8
+                    if split[1] == "8" then
+                        -- show on screen
+                        -- replace
+                        term.setCursorPos(1, 3)
+                        term.write(split[2])
+                        sleep(1)
+                        inClientLoop = false
+                    end
+                elseif event[1] == "key" then
+                    if event[2] == keys.q or event[2] == keys.left or event[2] == keys.right then
+                        inClientLoop = false
+                    end
+                elseif event[1] == "mouse_click" then
+                    if event[2] == 1 then
+                        inClientLoop = false
+                    end
+                end
+            end
+
+            -- print end message
+            term.setCursorPos(1, 4)
+            term.clearLine()
+            term.write("Press any key to continue")
             local event = { os.pullEventRaw() }
-            if event[1] == "modem_message" then
+            inLoop = false
+            
+            
+        else
+            -- listen for modem_message
+            local inLoop = true
+            while inLoop do
+                local event = { os.pullEventRaw() }
+                if event[1] == "modem_message" then
 
-                term.setCursorPos(1, 2)
-                term.clearLine()
-                -- decode with |
-                local message = event[5]
-                local split = {}
-                for s in message:gmatch("[^|]+") do
-                    table.insert(split, s)
-                end
-                -- 1 == PLAYER POSITION
-                -- 2 == PLAYER CHANGED DIMENSION
-                -- 3 == PLAYER JOIN
-                -- 4 == PLAYER LEAVE
-                -- 5 == TIME UPDATE
-                -- 6 == MOON UPDATE
-                -- 7 == ARMOR UPDATE
+                    term.setCursorPos(1, 2)
+                    term.clearLine()
+                    -- decode with |
+                    local message = event[5]
+                    local split = {}
+                    for s in message:gmatch("[^|]+") do
+                        table.insert(split, s)
+                    end
+                    -- 1 == PLAYER POSITION
+                    -- 2 == PLAYER CHANGED DIMENSION
+                    -- 3 == PLAYER JOIN
+                    -- 4 == PLAYER LEAVE
+                    -- 5 == TIME UPDATE
+                    -- 6 == MOON UPDATE
+                    -- 7 == ARMOR UPDATE
 
-                local yOffset = 3
-                -- if 5 then offset by extra 4
-                if split[1] == "5" then
-                    yOffset = yOffset + 4
-                end
-                -- if 6 then offset by extra 8
-                if split[1] == "6" then
-                    yOffset = yOffset + 8
-                end
-                -- if 7 then offset by extra 10
-                if split[1] == "7" then
-                    yOffset = yOffset + 10
-                end
-
-                if split[1] == "1" then
-                    -- PLAYER POSITION
-                    term.write("Player Position:")
-                    term.setCursorPos(1, 3)
-                    term.clearLine()
-                    term.write("Player: " .. split[2])
-                    term.setCursorPos(1, 4)
-                    term.clearLine()
-                    term.write("X: " .. split[3] .. " Y: " .. split[4] .. " Z: " .. split[5])
-                    term.setCursorPos(1, 5)
-                    term.clearLine()
-                    term.write("Pitch: " .. split[6] .. " Yaw: " .. split[7])
-                elseif split[1] == "2" then
-                    -- PLAYER CHANGED DIMENSION
-                    term.write("Player Changed Dimension:")
-                    term.setCursorPos(1, yOffset)
-                    term.clearLine()
-                    term.write("Player: " .. split[2])
-                    term.setCursorPos(1, yOffset + 1)
-                    term.clearLine()
-                    term.write("From: " .. split[3])
-                    term.setCursorPos(1, yOffset + 2)
-                    term.clearLine()
-                    term.write("To: " .. split[4])
-                    sleep(nonPosUpdateTime)
-                elseif split[1] == "3" then
-                    -- PLAYER JOIN
-                    term.write("Player Joined:")
-                    term.setCursorPos(1, yOffset)
-                    term.clearLine()
-                    term.write("Player: " .. split[2])
-                    -- clear other two lines
-                    term.setCursorPos(1, yOffset + 1)
-                    term.clearLine()
-                    term.setCursorPos(1, yOffset + 2)
-                    term.clearLine()
-                    sleep(nonPosUpdateTime)
-                elseif split[1] == "4" then
-                    -- PLAYER LEAVE
-                    term.write("Player Left:")
-                    term.setCursorPos(1, yOffset)
-                    term.clearLine()
-                    term.write("Player: " .. split[2])
-                    -- clear other two lines
-                    term.setCursorPos(1, yOffset + 1)
-                    term.clearLine()
-                    term.setCursorPos(1, yOffset + 2)
-                    term.clearLine()
-                    sleep(nonPosUpdateTime)
-                elseif split[1] == "5" then
-                    -- TIME UPDATE
-                    term.write("Time Update:")
-                    term.setCursorPos(1, yOffset)
-                    term.clearLine()
-                    term.write("Ticks: " .. split[2])
-                    -- set next line to days :: hours :: mins
-                    local ticks = tonumber(split[2])
-                    local time = ticksToTime(ticks)
-                    term.setCursorPos(1, yOffset + 1)
-                    term.clearLine()
-                    local timeString = "Day: " .. time.days .. " Hour: " .. time.hours .. " Min: " .. time.minutes
-                    term.write(timeString)
-                    -- other line to phase of the day
-                    term.setCursorPos(1, yOffset + 2)
-                    term.clearLine()
-                    -- get % through phase
-                    local phaseInfo = getPhaseOfDay(ticks % 24000)
-                    local phaseString = "Phase: " .. phaseInfo.phase .. " (" .. phaseInfo.percentThroughPhase .. "%)"
-                    term.write(phaseString)
-                elseif split[1] == "6" then
-                    -- MOON UPDATE
-                    term.write("Moon Update:")
-                    term.setCursorPos(1, yOffset)
-                    term.clearLine()
-                    term.write("Moon: " .. "(" .. split[2] .. ") " .. split[3])
-                elseif split[1] == "7" then
-                    -- ARMOR UPDATE
-                    term.write("Armor Update:")
-                    -- for split[2 onwards]
-                    for i = 2, #split do
-                        term.setCursorPos(1, yOffset)
-                        term.clearLine()
-                        term.write(split[i])
-                        yOffset = yOffset + 1
+                    local yOffset = 3
+                    -- if 5 then offset by extra 4
+                    if split[1] == "5" then
+                        yOffset = yOffset + 4
+                    end
+                    -- if 6 then offset by extra 8
+                    if split[1] == "6" then
+                        yOffset = yOffset + 8
+                    end
+                    -- if 7 then offset by extra 10
+                    if split[1] == "7" then
+                        yOffset = yOffset + 10
                     end
 
-                end
+                    if split[1] == "1" then
+                        -- PLAYER POSITION
+                        term.write("Player Position:")
+                        term.setCursorPos(1, 3)
+                        term.clearLine()
+                        term.write("Player: " .. split[2])
+                        term.setCursorPos(1, 4)
+                        term.clearLine()
+                        term.write("X: " .. split[3] .. " Y: " .. split[4] .. " Z: " .. split[5])
+                        term.setCursorPos(1, 5)
+                        term.clearLine()
+                        term.write("Pitch: " .. split[6] .. " Yaw: " .. split[7])
+                    elseif split[1] == "2" then
+                        -- PLAYER CHANGED DIMENSION
+                        term.write("Player Changed Dimension:")
+                        term.setCursorPos(1, yOffset)
+                        term.clearLine()
+                        term.write("Player: " .. split[2])
+                        term.setCursorPos(1, yOffset + 1)
+                        term.clearLine()
+                        term.write("From: " .. split[3])
+                        term.setCursorPos(1, yOffset + 2)
+                        term.clearLine()
+                        term.write("To: " .. split[4])
+                        sleep(nonPosUpdateTime)
+                    elseif split[1] == "3" then
+                        -- PLAYER JOIN
+                        term.write("Player Joined:")
+                        term.setCursorPos(1, yOffset)
+                        term.clearLine()
+                        term.write("Player: " .. split[2])
+                        -- clear other two lines
+                        term.setCursorPos(1, yOffset + 1)
+                        term.clearLine()
+                        term.setCursorPos(1, yOffset + 2)
+                        term.clearLine()
+                        sleep(nonPosUpdateTime)
+                    elseif split[1] == "4" then
+                        -- PLAYER LEAVE
+                        term.write("Player Left:")
+                        term.setCursorPos(1, yOffset)
+                        term.clearLine()
+                        term.write("Player: " .. split[2])
+                        -- clear other two lines
+                        term.setCursorPos(1, yOffset + 1)
+                        term.clearLine()
+                        term.setCursorPos(1, yOffset + 2)
+                        term.clearLine()
+                        sleep(nonPosUpdateTime)
+                    elseif split[1] == "5" then
+                        -- TIME UPDATE
+                        term.write("Time Update:")
+                        term.setCursorPos(1, yOffset)
+                        term.clearLine()
+                        term.write("Ticks: " .. split[2])
+                        -- set next line to days :: hours :: mins
+                        local ticks = tonumber(split[2])
+                        local time = ticksToTime(ticks)
+                        term.setCursorPos(1, yOffset + 1)
+                        term.clearLine()
+                        local timeString = "Day: " .. time.days .. " Hour: " .. time.hours .. " Min: " .. time.minutes
+                        term.write(timeString)
+                        -- other line to phase of the day
+                        term.setCursorPos(1, yOffset + 2)
+                        term.clearLine()
+                        -- get % through phase
+                        local phaseInfo = getPhaseOfDay(ticks % 24000)
+                        local phaseString = "Phase: " .. phaseInfo.phase .. " (" .. phaseInfo.percentThroughPhase .. "%)"
+                        term.write(phaseString)
+                    elseif split[1] == "6" then
+                        -- MOON UPDATE
+                        term.write("Moon Update:")
+                        term.setCursorPos(1, yOffset)
+                        term.clearLine()
+                        term.write("Moon: " .. "(" .. split[2] .. ") " .. split[3])
+                    elseif split[1] == "7" then
+                        -- ARMOR UPDATE
+                        term.write("Armor Update:")
+                        -- for split[2 onwards]
+                        for i = 2, #split do
+                            term.setCursorPos(1, yOffset)
+                            term.clearLine()
+                            term.write(split[i])
+                            yOffset = yOffset + 1
+                        end
 
-                -- else if q or < or >, then quit
-            elseif event[1] == "key" then
-                if event[2] == keys.q or event[2] == keys.left or event[2] == keys.right then
-                    inLoop = false
-                end
-            elseif event[1] == "mouse_click" then
-                if event[2] == 1 then
-                    inLoop = false
+                    end
+
+                    -- else if q or < or >, then quit
+                elseif event[1] == "key" then
+                    if event[2] == keys.q or event[2] == keys.left or event[2] == keys.right then
+                        inLoop = false
+                    end
+                elseif event[1] == "mouse_click" then
+                    if event[2] == 1 then
+                        inLoop = false
+                    end
                 end
             end
         end
@@ -610,6 +819,8 @@ function tabSettings()
             SETTING_OPTS[4] = "Environment Events"
         elseif eventType == "INV" then
             SETTING_OPTS[4] = "Inventory Events"
+        elseif eventType == "MEI" then
+            SETTING_OPTS[4] = "ME + Inventory Events"
         end
 
         for i = 1, sMax do
@@ -730,7 +941,7 @@ function settingsCBModemOffset()
     else
         term.setCursorPos(1, yOffset)
         term.clearLine()
-        term.write("Invalid offset (0 < x < 65535)")
+        term.write("Must be (0 < x < 65500)")
     end
 
 end
@@ -750,7 +961,7 @@ end
 function settingsCBEventType()
     --[[ Event Type ]]
     -- Cycle through
-    local eventTypes = {"POS", "ENV", "INV"}
+    local eventTypes = {"POS", "ENV", "INV", "MEI"}
     local curIndex = 1
     for i = 1, #eventTypes do
         if eventType == eventTypes[i] then

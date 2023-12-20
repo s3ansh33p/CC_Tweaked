@@ -5,7 +5,7 @@ local geoScanner = peripheral.find("geoScanner")
 -- get args
 local tArgs = { ... }
 if #tArgs ~= 2 then
-    print("Usage: pscan <radius> <type>")
+    print("Usage: scan <radius> <type>")
     return
 end
 
@@ -95,10 +95,10 @@ end
 -- loop through in order of distance
 table.sort(results, function(a, b) return a[5] < b[5] end)
 for i, result in ipairs(results) do
-    if (i <= 15) then
+    if (i <= 10) then
         print(result[1], result[2], result[3], result[4])
-    elseif (i == 16) then
-        print("Showing 15 of " .. #results .. " results")
+    elseif (i == 11) then
+        print("Showing 10 of " .. #results .. " results")
     end
    
 end

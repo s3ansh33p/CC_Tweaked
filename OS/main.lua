@@ -350,7 +350,7 @@ function tabHome()
                     else 
                         local durabilityLeft = maxDurability - damage
                         local durabilityPercent = math.floor((durabilityLeft / maxDurability) * 100)
-                        message = message .. genericName .. " " .. damage .. " / " .. maxDurability .. " (" .. durabilityPercent .. "%)"
+                        message = message .. genericName .. " " .. durabilityLeft .. " / " .. maxDurability .. " (" .. durabilityPercent .. "%)"
                     end
                     if i < #armor then
                         message = message .. "|"
@@ -405,9 +405,9 @@ function tabHome()
                 if split[1] == "6" then
                     yOffset = yOffset + 8
                 end
-                -- if 7 then offset by extra 11
+                -- if 7 then offset by extra 10
                 if split[1] == "7" then
-                    yOffset = yOffset + 11
+                    yOffset = yOffset + 10
                 end
 
                 if split[1] == "1" then
@@ -484,17 +484,11 @@ function tabHome()
                     term.write("Moon Update:")
                     term.setCursorPos(1, yOffset)
                     term.clearLine()
-                    term.write("Moon Id: " .. split[2])
-                    term.setCursorPos(1, yOffset + 1)
-                    term.clearLine()
-                    term.write("Moon Name: " .. split[3])
+                    term.write("Moon: " .. "(" .. split[2] .. ") " .. split[3])
                 elseif split[1] == "7" then
                     -- ARMOR UPDATE
                     term.write("Armor Update:")
-                    term.setCursorPos(1, yOffset)
-                    term.clearLine()
                     -- for split[2 onwards]
-                    local yOffset = yOffset + 1
                     for i = 2, #split do
                         term.setCursorPos(1, yOffset)
                         term.clearLine()

@@ -5,16 +5,14 @@ if #tArgs ~= 1 then
     return
 end
 
--- map of files - track.lua is "KaH6ZGmw" (pastebin)
 local fileMap = {
     ["track"] = "KaH6ZGmw",
     ["update"] = "QRA0Xx21",
     ["diskspace"] = "qVUuNHtY",
     ["s3"] = "AkgyTdY0",
-    ["pscan"] = "vtM0ChSt"
+    ["scan"] = "vtM0ChSt"
 }
 
--- get pastebin id from map
 local fileName = tArgs[1]
 -- check if .lua also given, if so, remove from end
 if string.sub(fileName, -4) == ".lua" then
@@ -33,7 +31,6 @@ local file = fs.open(fileName, "w")
 file.write(http.get(fileUrl).readAll())
 file.close()
 
-print("Downloaded '" .. fileName .. "' from pastebin")
-sleep(0.5)
--- run the new track.lua file
+print("Got '" .. fileName .. "'")
+sleep(0.2)
 shell.run(fileName)

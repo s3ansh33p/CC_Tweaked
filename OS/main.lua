@@ -1,8 +1,8 @@
 -- Custom OS for Computer Craft with Advanced Peripherals
 -- Designed to run on pocket computer
 -- Authors: Sean
--- Version: 0.4
--- Date: 2023-12-19
+-- Version: 0.5
+-- Date: 2023-12-20
 
 -- [[ CUSTOM CONFIG ]] --
 
@@ -38,8 +38,8 @@ local nonPosUpdateTime = 5
 --======[[ OS VARIABLES ]]======--
 
 local OS_NAME = "SeanOS"
-local OS_VERSION = "0.4"
-local OS_DATE = "2023-12-19"
+local OS_VERSION = "0.5"
+local OS_DATE = "2023-12-20"
 local DEBUG_MODE = true
 
 --======[[ GLOBAL VARIABLES ]]======--
@@ -434,7 +434,7 @@ function tabHome()
 
                         -- packet format
                         -- FROM CLIENT TO SERVER 
-                        -- 1|<item name>|<item count>
+                        -- 9|<item name>|<item count>
                         -- server side to determine next slot and will take from ME to Player Inventory
                         
                         -- FROM SERVER TO CLIENT
@@ -449,8 +449,8 @@ function tabHome()
                             table.insert(split, s)
                         end
 
-                        -- check if 1
-                        if split[1] == "1" then
+                        -- check if 9
+                        if split[1] == "9" then
                             -- check if 3
                             if #split == 3 then
                                 -- get item name and count
@@ -536,7 +536,7 @@ function tabHome()
             term.write("Count:")
             local itemCount = tonumber(read())
             -- send packet
-            local packet = "1|" .. itemName .. "|" .. itemCount
+            local packet = "9|" .. itemName .. "|" .. itemCount
             modem.transmit(modemChannelOffset + 1, modemChannelOffset + 4, packet)
             -- show on screen
             -- replace

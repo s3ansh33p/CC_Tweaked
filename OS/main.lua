@@ -97,8 +97,8 @@ function ticksToTime(ticks)
     local years = math.floor(days / 365)
     local ticksInDay = ticks % 24000
     local hours = math.floor(ticksInDay / 1000)
-    local minutes = math.floor((ticksInDay % 1000) / 16.66666666666667)
-    local seconds = math.floor((ticksInDay % 1000) % 16.66666666666667)
+    local minutes = math.floor((ticksInDay % 1000) / 16.67)
+    local seconds = math.floor((ticksInDay % 1000) % 16.67)
     return {
         seconds = seconds,
         minutes = minutes,

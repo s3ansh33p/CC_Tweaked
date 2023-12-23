@@ -123,6 +123,27 @@ local function showResults(results)
     end
 end
 
+-- function for system information
+local function systemInformation()
+    local numCells = #me.listCells()
+    local totalItemStorage = me.getTotalItemStorage()
+    local totalFluidStorage = me.getTotalFluidStorage()
+    print("Number of Cells: " .. numCells)
+    if totalItemStorage == 0 then
+        print("Items: 0/0 (0%)")
+    else
+        local usedItemStorage = me.getUsedItemStorage()
+        local itemPercent = math.floor(usedItemStorage / totalItemStorage * 10000) / 100
+        print("Items: " .. usedItemStorage .. "/" .. totalItemStorage .. " (" .. itemPercent .. "%)")
+    end
+        if totalFluidStorage == 0 then
+        print("Fluids: 0/0 (0%)")
+    else 
+        local usedFluidStorage = me.getUsedFluidStorage()
+        local fluidPercent = math.floor(usedFluidStorage / totalFluidStorage * 10000) / 100
+        print("Fluids: " .. usedFluidStorage .. "/" .. totalFluidStorage .. " (" .. fluidPercent .. "%)")
+    end
+end
 
 local function main()
 
@@ -181,7 +202,7 @@ local function main()
             local results = searchItems(query)
             showResults(results)
         elseif choice == 5 then
-            print("TBA")
+            systemInformation()
         elseif choice == 6 then
             mainLoop = false
         else

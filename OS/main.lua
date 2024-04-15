@@ -155,6 +155,32 @@ end
 
 --======[[ ME BRIDGE / INVENTORY FUNCTIONS ]]======--
 
+-- function to remove an item from the player and put in me system
+local function removeItemFromPlayerToChest(itemName, count)
+    local playerInventory = manager.getItems()
+    local slot = nil
+    for i, item in ipairs(playerInventory) do
+        if item.name == itemName then
+            if item.count >= count then
+                slot = item.slot
+                break
+            end
+        end
+    end
+    if slot == nil then
+        print("No slot found with " .. itemName .. " with count " .. count)
+        return
+    end
+    print("Next slot is " .. slot)
+    print("Removing " .. count .. " " .. itemName .. " from player")
+    manager.removeItemFromPlayer("front", count, slot, itemName)
+end
+
+-- function to get item to ME from chest on left
+local function removeItemFromChestToMe(itemName, count)
+    me.importItemFromPeripheral({ name = itemName, count = count }, "left")
+end
+
 -- function to get item from ME to chest on left
 local function getItemFromMeToChest(me, itemName, count)
     me.exportItemToPeripheral({ name = itemName, count = count }, "left")
@@ -189,6 +215,119 @@ local function getItemFromChestToPlayer(manager, itemName, count)
     print("Next free slot is " .. slot)
     print("Adding " .. count .. " " .. itemName .. " to player")
     manager.addItemToPlayer("front", count, slot, itemName)
+end
+
+-- function to list items in me system, with offset
+local function listItems(offset, limit)
+    local items = me.listItems()
+    local i = offset
+    local count = 0
+    while items[i] ~= nil do
+        print(items[i].displayName .. " " .. items[i].amount)
+        i = i + 1
+        count = count + 1
+        if limit ~= nil and count >= limit then
+            break
+        end
+    end
+end
+
+-- format item name
+-- change spaces to _
+-- make all lowercase
+-- add minecraft: if no : exists
+local function formatItemName(itemName)
+    local formattedName = itemName:gsub(" ", "_")
+    formattedName = formattedName:lower()
+    if not formattedName:find(":") then
+        formattedName = "minecraft:" .. formattedName
+    end
+    return formattedName
+end
+
+-- search items
+-- filter search results by item query string
+local function searchItems(query)
+    local formattedQuery = query:lower()
+    local items = me.listItems()
+    local results = {}
+    local limit = 10
+    for i, item in ipairs(items) do
+        if #results >= limit then
+            break
+        end
+        -- convert all to lowercase
+        local name = item.name:lower()
+        if name:find(formattedQuery) then
+            table.insert(results, item)
+        end
+    end
+    return results    
+end
+
+-- function to show results
+local function showResults(results)
+    for i, item in ipairs(results) do
+        print(item.displayName .. " " .. item.amount)
+    end
+end
+
+-- function for system information
+local function systemInformation()
+    local numCells = #me.listCells()
+    local totalItemStorage = me.getTotalItemStorage()
+    local totalFluidStorage = me.getTotalFluidStorage()
+    print("Number of Cells: " .. numCells)
+    if totalItemStorage == 0 then
+        print("Items: 0/0 (0%)")
+    else
+        local usedItemStorage = me.getUsedItemStorage()
+        local itemPercent = math.floor(usedItemStorage / totalItemStorage * 10000) / 100
+        print("Items: " .. usedItemStorage .. "/" .. totalItemStorage .. " (" .. itemPercent .. "%)")
+    end
+        if totalFluidStorage == 0 then
+        print("Fluids: 0/0 (0%)")
+    else 
+        local usedFluidStorage = me.getUsedFluidStorage()
+        local fluidPercent = math.floor(usedFluidStorage / totalFluidStorage * 10000) / 100
+        print("Fluids: " .. usedFluidStorage .. "/" .. totalFluidStorage .. " (" .. fluidPercent .. "%)")
+    end
+end
+
+local function processItemToPlayer(detector, meBridge, itemName, itemCount)
+    local leftOver = itemCount % 64
+    local stacks = math.floor(itemCount / 64)
+    while stacks > 0 do
+        -- get item from ME to chest
+        getItemFromMeToChest(meBridge, itemName, 64)
+        -- get item from chest to player
+        getItemFromChestToPlayer(detector, itemName, 64)
+        stacks = stacks - 1
+    end
+    if leftOver > 0 then
+        -- get item from ME to chest
+        getItemFromMeToChest(meBridge, itemName, leftOver)
+        -- get item from chest to player
+        getItemFromChestToPlayer(detector, itemName, leftOver)
+    end
+end
+
+local function processItemFromPlayer(detector, meBridge, itemName, itemCount)
+    local leftOver = itemCount % 64
+    local stacks = math.floor(itemCount / 64)
+    while stacks > 0 do
+        -- remove item from player to chest
+        removeItemFromPlayerToChest(itemName, 64)
+        -- remove item from chest to ME
+        removeItemFromChestToMe(itemName, 64)
+        stacks = stacks - 1
+    end
+    if leftOver > 0 then
+        -- remove item from player to chest
+        removeItemFromPlayerToChest(itemName, leftOver)
+        -- remove item from chest to ME
+        removeItemFromChestToMe(itemName, leftOver)
+    end
 end
 
 --======[[ TAB FUNCTIONS ]]======--
@@ -434,7 +573,7 @@ function tabHome()
 
                         -- packet format
                         -- FROM CLIENT TO SERVER 
-                        -- 9|<item name>|<item count>
+                        -- 101|<item name>|<item count>
                         -- server side to determine next slot and will take from ME to Player Inventory
                         
                         -- FROM SERVER TO CLIENT
@@ -449,8 +588,39 @@ function tabHome()
                             table.insert(split, s)
                         end
 
-                        -- check if 9
-                        if split[1] == "9" then
+                        -- check if 102 for amount
+                        if split[1] == "102" then
+                            -- check 3 args
+                            if #split == 3 then
+                                -- get item name and count
+                                local itemName = split[2]
+                                local itemCount = tonumber(split[3])
+                                -- check if item exists in ME
+                                local meItem = meBridge.getItem({ name = itemName })
+                                local serverItemCount = 0
+                                if meItem then
+                                    serverItemCount = meItem.amount
+                                end
+                                -- send packet back to client
+                                local responseMessage = "10|" .. serverItemCount
+                                modem.transmit(modemChannelOffset + 1, modemChannelOffset + 3, responseMessage)
+                                -- show on screen
+                                -- replace
+                                term.setCursorPos(1, 2)
+                                term.write(responseMessage)
+                            else
+                                -- send error message
+                                local responseMessage = "8|Invalid packet format"
+                                modem.transmit(modemChannelOffset + 1, modemChannelOffset + 3, responseMessage)
+                                -- show on screen
+                                -- replace
+                                term.setCursorPos(1, 2)
+                                term.write(responseMessage)
+                            end
+                                
+
+
+                        if split[1] == "101" then
                             -- check if 3
                             if #split == 3 then
                                 -- get item name and count
@@ -500,6 +670,7 @@ function tabHome()
                                 term.setCursorPos(1, 2)
                                 term.write(responseMessage)
                             end
+                        elseif 
                         end
 
                     -- Server side kill switch
@@ -520,59 +691,271 @@ function tabHome()
     else
         -- check client event type - i.e if in MEI, then client will communicate with server
         if eventType == "MEI" then 
-            -- get prompt for user
-            -- setup prompt
-            term.setCursorPos(1, 2)
-            term.clearLine()
-            term.write("Item:")
-            local itemName = read()
-            -- if not starts with minecraft:, add it, but if it has :, skip
-            if not string.find(itemName, ":") then
-                itemName = "minecraft:" .. itemName
-            end
-            -- get count
-            term.setCursorPos(1, 3)
-            term.clearLine()
-            term.write("Count:")
-            local itemCount = tonumber(read())
-            -- send packet
-            local packet = "9|" .. itemName .. "|" .. itemCount
-            modem.transmit(modemChannelOffset + 1, modemChannelOffset + 4, packet)
-            -- show on screen
-            -- replace
-            term.setCursorPos(1, 2)
-            term.write(packet)
-            -- listen for response
-            local inClientLoop = true
-            while inClientLoop do
-                local event = { os.pullEventRaw() }
-                if event[1] == "modem_message" then
-                    -- decode with |
-                    local message = event[5]
-                    local split = {}
-                    for s in message:gmatch("[^|]+") do
-                        table.insert(split, s)
+
+            -- using manager code, have menu of options
+            -- 1. Get Item
+            -- 2. Send Item
+            -- 3. List Items
+            -- 4. Search Items
+            -- 5. ME Status
+            -- 6. Exit
+
+            local clientMenuLoop = true
+            while clientMenuLoop do
+                print("1. Get Item")
+                print("2. Send Item")
+                print("3. List Items")
+                print("4. Search Items")
+                print("5. ME Status")
+                print("6. Exit")
+
+                local choice = tonumber(read())
+                if choice == 1 then
+                    print("Item Name:")
+                    local itemName = read()
+                    itemName = formatItemName(itemName)
+                    print("Item Count:")
+                    local itemCount = tonumber(read())
+                    -- determine number in system
+                    -- local meItem = meBridge.getItem({ name = itemName })
+                    -- send packet to get information
+                    local packet = "102|" .. itemName .. "|" .. itemCount
+                    modem.transmit(modemChannelOffset + 1, modemChannelOffset + 4, packet)
+                    -- listen for response
+                    local serverItemCount = nil
+                    local inClientLoop = true
+                    while inClientLoop do
+                        local event = { os.pullEventRaw() }
+                        if event[1] == "modem_message" then
+                            -- decode with |
+                            local message = event[5]
+                            local split = {}
+                            for s in message:gmatch("[^|]+") do
+                                table.insert(split, s)
+                            end
+                            -- check if 10
+                            if split[1] == "10" then
+                                serverItemCount = tonumber(split[2])
+                                inClientLoop = false
+                            end
+                        elseif event[1] == "key" then
+                            if event[2] == keys.q or event[2] == keys.left or event[2] == keys.right then
+                                inClientLoop = false
+                            end
+                        elseif event[1] == "mouse_click" then
+                            if event[2] == 1 then
+                                inClientLoop = false
+                            end
+                        end
                     end
-                    -- check if 8
-                    if split[1] == "8" then
-                        -- show on screen
-                        -- replace
-                        term.setCursorPos(1, 3)
-                        term.write(split[2])
-                        sleep(1)
-                        inClientLoop = false
+                    -- check if 0
+                    if serverItemCount == 0 then
+                        print("Item " .. itemName .. " not found in ME")
+                    else
+                        -- check if enough
+                        if serverItemCount < itemCount then
+                            print("Not enough " .. itemName .. " in ME")
+                        else
+                            -- process
+                            -- processItemFromPlayer(detector, meBridge, itemName, itemCount)
+                            -- send packet to queue for processing
+                            local packet = "103|" .. itemName .. "|" .. itemCount
+                            modem.transmit(modemChannelOffset + 1, modemChannelOffset + 4, packet)
+                            local serverSuccess = nil
+                            -- listen for response
+                            local inClientLoop = true
+                            while inClientLoop do
+                                local event = { os.pullEventRaw() }
+                                if event[1] == "modem_message" then
+                                    -- decode with |
+                                    local message = event[5]
+                                    local split = {}
+                                    for s in message:gmatch("[^|]+") do
+                                        table.insert(split, s)
+                                    end
+                                    -- check if 11
+                                    if split[1] == "11" then
+                                        serverSuccess = split[2]
+                                        inClientLoop = false
+                                    end
+                                elseif event[1] == "key" then
+                                    if event[2] == keys.q or event[2] == keys.left or event[2] == keys.right then
+                                        inClientLoop = false
+                                    end
+                                elseif event[1] == "mouse_click" then
+                                    if event[2] == 1 then
+                                        inClientLoop = false
+                                    end
+                                end
+                            end
+                            -- check if 0
+                            if serverSuccess == "0" then
+                                print("Item " .. itemName .. " not found in ME")
+                            else
+                                print("Item " .. itemName .. " sent to ME")
+                            end
+                        end
                     end
-                elseif event[1] == "key" then
-                    if event[2] == keys.q or event[2] == keys.left or event[2] == keys.right then
-                        inClientLoop = false
+                elseif choice == 2 then
+                    print("Item Name:")
+                    local itemName = read()
+                    itemName = formatItemName(itemName)
+                    print("Item Count:")
+                    local itemCount = tonumber(read())
+                    -- depositing into system so no need to check if exists there,
+                    -- but check is in player
+                    -- sernd packet to server
+                    local packet = "104|" .. itemName .. "|" .. itemCount
+                    modem.transmit(modemChannelOffset + 1, modemChannelOffset + 4, packet)
+                    -- listen for response
+                    local serverSuccess = nil
+                    local inClientLoop = true
+                    while inClientLoop do
+                        local event = { os.pullEventRaw() }
+                        if event[1] == "modem_message" then
+                            -- decode with |
+                            local message = event[5]
+                            local split = {}
+                            for s in message:gmatch("[^|]+") do
+                                table.insert(split, s)
+                            end
+                            -- check if 11
+                            if split[1] == "11" then
+                                serverSuccess = split[2]
+                                inClientLoop = false
+                            end
+                        elseif event[1] == "key" then
+                            if event[2] == keys.q or event[2] == keys.left or event[2] == keys.right then
+                                inClientLoop = false
+                            end
+                        elseif event[1] == "mouse_click" then
+                            if event[2] == 1 then
+                                inClientLoop = false
+                            end
+                        end
                     end
-                elseif event[1] == "mouse_click" then
-                    if event[2] == 1 then
-                        inClientLoop = false
+                    -- check if 0
+                    if serverSuccess == "0" then
+                        print("Item " .. itemName .. " not found in player")
+                    else
+                        print("Item " .. itemName .. " sent to ME")
                     end
+                elseif choice == 3 then
+                    print("Offset:")
+                    local offset = tonumber(read())
+                    print("Limit:")
+                    local limit = tonumber(read())
+                    -- listItems(offset, limit)
+                    -- send packet
+                    local packet = "105|" .. offset .. "|" .. limit
+                    modem.transmit(modemChannelOffset + 1, modemChannelOffset + 4, packet)
+                    -- listen for response
+                    local inClientLoop = true
+                    while inClientLoop do
+                        local event = { os.pullEventRaw() }
+                        if event[1] == "modem_message" then
+                            -- decode with |
+                            local message = event[5]
+                            local split = {}
+                            for s in message:gmatch("[^|]+") do
+                                table.insert(split, s)
+                            end
+                            -- check if 12
+                            if split[1] == "12" then
+                                -- show on screen
+                                term.setCursorPos(1, 2)
+                                term.clearLine()
+                                term.write(message)
+                                sleep(1)
+                                inClientLoop = false
+                            end
+                        elseif event[1] == "key" then
+                            if event[2] == keys.q or event[2] == keys.left or event[2] == keys.right then
+                                inClientLoop = false
+                            end
+                        elseif event[1] == "mouse_click" then
+                            if event[2] == 1 then
+                                inClientLoop = false
+                            end
+                        end
+                    end
+                elseif choice == 4 then
+                    print("Query:")
+                    local query = read()
+                    -- searchItems(query)
+                    -- send packet
+                    local packet = "106|" .. query
+                    modem.transmit(modemChannelOffset + 1, modemChannelOffset + 4, packet)
+                    -- listen for response
+                    local inClientLoop = true
+                    while inClientLoop do
+                        local event = { os.pullEventRaw() }
+                        if event[1] == "modem_message" then
+                            -- decode with |
+                            local message = event[5]
+                            local split = {}
+                            for s in message:gmatch("[^|]+") do
+                                table.insert(split, s)
+                            end
+                            -- check if 13
+                            if split[1] == "13" then
+                                -- show on screen
+                                term.setCursorPos(1, 2)
+                                term.clearLine()
+                                term.write(message)
+                                sleep(1)
+                                inClientLoop = false
+                            end
+                        elseif event[1] == "key" then
+                            if event[2] == keys.q or event[2] == keys.left or event[2] == keys.right then
+                                inClientLoop = false
+                            end
+                        elseif event[1] == "mouse_click" then
+                            if event[2] == 1 then
+                                inClientLoop = false
+                            end
+                        end
+                    end
+                elseif choice == 5 then
+                    -- systemInformation()
+                    -- send packet
+                    local packet = "107|"
+                    modem.transmit(modemChannelOffset + 1, modemChannelOffset + 4, packet)
+                    -- listen for response
+                    local inClientLoop = true
+                    while inClientLoop do
+                        local event = { os.pullEventRaw() }
+                        if event[1] == "modem_message" then
+                            -- decode with |
+                            local message = event[5]
+                            local split = {}
+                            for s in message:gmatch("[^|]+") do
+                                table.insert(split, s)
+                            end
+                            -- check if 14
+                            if split[1] == "14" then
+                                -- show on screen
+                                term.setCursorPos(1, 2)
+                                term.clearLine()
+                                term.write(message)
+                                sleep(1)
+                                inClientLoop = false
+                            end
+                        elseif event[1] == "key" then
+                            if event[2] == keys.q or event[2] == keys.left or event[2] == keys.right then
+                                inClientLoop = false
+                            end
+                        elseif event[1] == "mouse_click" then
+                            if event[2] == 1 then
+                                inClientLoop = false
+                            end
+                        end
+                    end
+                elseif choice == 6 then
+                    clientMenuLoop = false
                 end
             end
-
+            
             -- print end message
             term.setCursorPos(1, 4)
             term.clearLine()
@@ -603,6 +986,7 @@ function tabHome()
                     -- 5 == TIME UPDATE
                     -- 6 == MOON UPDATE
                     -- 7 == ARMOR UPDATE
+                    -- 8
 
                     local yOffset = 3
                     -- if 5 then offset by extra 4

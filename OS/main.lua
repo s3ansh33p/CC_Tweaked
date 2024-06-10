@@ -306,6 +306,11 @@ function tabHome()
                     for _, player in pairs(detector.getOnlinePlayers()) do
                         local pos = detector.getPlayerPos(player)
                         if pos then
+                            pos.pitch = if pos.pitch then pos.pitch else 0 end
+                            pos.yaw = if pos.yaw then pos.yaw else 0 end
+                            pos.x = if pos.x then pos.x else 0 end
+                            pos.y = if pos.y then pos.y else 0 end
+                            pos.z = if pos.z then pos.z else 0 end
                             local newPitch = math.floor(pos.pitch * 100) / 100
                             local newYaw = math.floor(pos.yaw * 100) / 100
                             local message = "1|" .. player .. "|" .. pos.x .. "|" .. pos.y .. "|" .. pos.z .. "|" .. newPitch .. "|" .. newYaw

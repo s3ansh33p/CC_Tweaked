@@ -305,16 +305,18 @@ function tabHome()
                 if not modemPoll then
                     for _, player in pairs(detector.getOnlinePlayers()) do
                         local pos = detector.getPlayerPos(player)
-                        local newPitch = math.floor(pos.pitch * 100) / 100
-                        local newYaw = math.floor(pos.yaw * 100) / 100
-                        local message = "1|" .. player .. "|" .. pos.x .. "|" .. pos.y .. "|" .. pos.z .. "|" .. newPitch .. "|" .. newYaw
-                        -- send message
-                        modem.transmit(modemChannelOffset + 1, modemChannelOffset + 2, message)
-                        -- show on screen
-                        -- replace
-                        term.setCursorPos(1, 2)
-                        term.write(message)
-                        sleep(1)
+                        if pos then
+                            local newPitch = math.floor(pos.pitch * 100) / 100
+                            local newYaw = math.floor(pos.yaw * 100) / 100
+                            local message = "1|" .. player .. "|" .. pos.x .. "|" .. pos.y .. "|" .. pos.z .. "|" .. newPitch .. "|" .. newYaw
+                            -- send message
+                            modem.transmit(modemChannelOffset + 1, modemChannelOffset + 2, message)
+                            -- show on screen
+                            -- replace
+                            term.setCursorPos(1, 2)
+                            term.write(message)
+                        end
+                        sleep(0.5)
                     end
                 else
                     local event = { os.pullEventRaw() }

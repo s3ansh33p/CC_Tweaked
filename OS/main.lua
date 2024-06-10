@@ -991,7 +991,8 @@ function tabPlayers()
     for i = 1, #players do
         local player = players[i]
         local pos = detector.getPlayerPos(player)
-        if pos and pos.x and pos.y and pos.z then
+        if pos and pos.x and pos.y then
+            pos.z = pos.z or "UNK"
             term.setCursorPos(1, yOffset)
             term.write(player)
             yOffset = yOffset + 1

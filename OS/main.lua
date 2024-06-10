@@ -991,13 +991,16 @@ function tabPlayers()
     for i = 1, #players do
         local player = players[i]
         local pos = detector.getPlayerPos(player)
-        term.setCursorPos(1, yOffset)
-        term.write(player)
-        yOffset = yOffset + 1
-        term.setCursorPos(1, yOffset)
-        term.write("X: " .. pos.x .. " Y: " .. pos.y .. " Z: " .. pos.z)
-        yOffset = yOffset + 1
+        if pos then
+            term.setCursorPos(1, yOffset)
+            term.write(player)
+            yOffset = yOffset + 1
+            term.setCursorPos(1, yOffset)
+            term.write("X: " .. pos.x .. " Y: " .. pos.y .. " Z: " .. pos.z)
+            yOffset = yOffset + 1
+        end
     end
+
 
     return false
 end

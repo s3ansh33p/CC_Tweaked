@@ -62,6 +62,25 @@ local pDetected = {}
 -- e.g. pDetectedByType["modem"] = {"left", "right"}
 local pDetectedByType = {}
 
+-- Local cache for playerInfo
+local clientPlayerInfo = {}
+
+-- player update idx
+local playerUpdateIdx = 1
+
+-- local cache for playUpdates (join leave change dimension)
+local clientPlayerUpdates = {}
+
+-- for time, moon, armor
+local clientOtherInfo = {}
+
+-- scrolling
+local scrollOffset = 0
+local scrollMax = 0
+
+-- get height of screen
+local _, termHeight = term.getSize()
+
 -- https://minecraft.fandom.com/wiki/Durability
 local DEFAULT_MAX_ARMOR_DURABILITY = {
     ["minecraft:turtle_helmet"] = 275,
@@ -94,6 +113,7 @@ local DEFAULT_MAX_ARMOR_DURABILITY = {
 --======[[ TIME FUNCTIONS ]]======--
 -- function to covert ticks to time
 function ticksToTime(ticks)
+    ticks = ticks or 0
     local days = math.floor(ticks / 24000)
     local years = math.floor(days / 365)
     local ticksInDay = ticks % 24000
@@ -306,11 +326,11 @@ function tabHome()
                     for _, player in pairs(detector.getOnlinePlayers()) do
                         local pos = detector.getPlayerPos(player)
                         if pos then
-                            pos.pitch = if pos.pitch then pos.pitch else 0 end
-                            pos.yaw = if pos.yaw then pos.yaw else 0 end
-                            pos.x = if pos.x then pos.x else 0 end
-                            pos.y = if pos.y then pos.y else 0 end
-                            pos.z = if pos.z then pos.z else 0 end
+                            pos.pitch = pos.pitch or 999 -- can never occur normally
+                            pos.yaw = pos.yaw or 0
+                            pos.x = pos.x or 0
+                            pos.y = pos.y or 0
+                            pos.z = pos.z or 0
                             local newPitch = math.floor(pos.pitch * 100) / 100
                             local newYaw = math.floor(pos.yaw * 100) / 100
                             local message = "1|" .. player .. "|" .. pos.x .. "|" .. pos.y .. "|" .. pos.z .. "|" .. newPitch .. "|" .. newYaw
@@ -321,7 +341,7 @@ function tabHome()
                             term.setCursorPos(1, 2)
                             term.write(message)
                         end
-                        sleep(0.5)
+                        sleep(1)
                     end
                 else
                     local event = { os.pullEventRaw() }
@@ -589,6 +609,7 @@ function tabHome()
             
             
         else
+            local buffer = {}
             -- listen for modem_message
             local inLoop = true
             while inLoop do
@@ -627,79 +648,71 @@ function tabHome()
 
                     if split[1] == "1" then
                         -- PLAYER POSITION
-                        term.write("Player Position:")
-                        term.setCursorPos(1, 3)
-                        term.clearLine()
-                        term.write("Player: " .. split[2])
-                        term.setCursorPos(1, 4)
-                        term.clearLine()
-                        term.write("X: " .. split[3] .. " Y: " .. split[4] .. " Z: " .. split[5])
-                        term.setCursorPos(1, 5)
-                        term.clearLine()
-                        term.write("Pitch: " .. split[6] .. " Yaw: " .. split[7])
+                        -- edit player cache
+                        clientPlayerInfo[split[2]] = {
+                            x = split[3],
+                            y = split[4],
+                            z = split[5],
+                            pitch = split[6],
+                            yaw = split[7]
+                        }
                     elseif split[1] == "2" then
                         -- PLAYER CHANGED DIMENSION
-                        term.write("Player Changed Dimension:")
-                        term.setCursorPos(1, yOffset)
-                        term.clearLine()
-                        term.write("Player: " .. split[2])
-                        term.setCursorPos(1, yOffset + 1)
-                        term.clearLine()
-                        term.write("From: " .. split[3])
-                        term.setCursorPos(1, yOffset + 2)
-                        term.clearLine()
-                        term.write("To: " .. split[4])
-                        sleep(nonPosUpdateTime)
+                        -- edit player update cache
+                        clientPlayerUpdates[playerUpdateIdx] = {
+                            type = "DIM",
+                            player = split[2],
+                            from = split[3],
+                            to = split[4]
+                        }
+                        playerUpdateIdx = playerUpdateIdx + 1
                     elseif split[1] == "3" then
-                        -- PLAYER JOIN
-                        term.write("Player Joined:")
-                        term.setCursorPos(1, yOffset)
-                        term.clearLine()
-                        term.write("Player: " .. split[2])
-                        -- clear other two lines
-                        term.setCursorPos(1, yOffset + 1)
-                        term.clearLine()
-                        term.setCursorPos(1, yOffset + 2)
-                        term.clearLine()
-                        sleep(nonPosUpdateTime)
+                        -- -- PLAYER JOIN
+                        -- edit player update cache
+                        clientPlayerUpdates[playerUpdateIdx] = {
+                            type = "JOIN",
+                            player = split[2]
+                        }
+                        playerUpdateIdx = playerUpdateIdx + 1
                     elseif split[1] == "4" then
-                        -- PLAYER LEAVE
-                        term.write("Player Left:")
-                        term.setCursorPos(1, yOffset)
-                        term.clearLine()
-                        term.write("Player: " .. split[2])
-                        -- clear other two lines
-                        term.setCursorPos(1, yOffset + 1)
-                        term.clearLine()
-                        term.setCursorPos(1, yOffset + 2)
-                        term.clearLine()
-                        sleep(nonPosUpdateTime)
+                        -- -- PLAYER LEAVE
+                        -- edit player update cache
+                        clientPlayerUpdates[playerUpdateIdx] = {
+                            type = "LEAVE",
+                            player = split[2]
+                        }
+                        playerUpdateIdx = playerUpdateIdx + 1
                     elseif split[1] == "5" then
                         -- TIME UPDATE
-                        term.write("Time Update:")
-                        term.setCursorPos(1, yOffset)
-                        term.clearLine()
-                        term.write("Ticks: " .. split[2])
-                        -- set next line to days :: hours :: mins
-                        local ticks = tonumber(split[2])
-                        local time = ticksToTime(ticks)
-                        term.setCursorPos(1, yOffset + 1)
-                        term.clearLine()
-                        local timeString = "Day: " .. time.days .. " Hour: " .. time.hours .. " Min: " .. time.minutes
-                        term.write(timeString)
-                        -- other line to phase of the day
-                        term.setCursorPos(1, yOffset + 2)
-                        term.clearLine()
-                        -- get % through phase
-                        local phaseInfo = getPhaseOfDay(ticks % 24000)
-                        local phaseString = "Phase: " .. phaseInfo.phase .. " (" .. phaseInfo.percentThroughPhase .. "%)"
-                        term.write(phaseString)
+                        -- term.write("Time Update:")
+                        -- term.setCursorPos(1, yOffset)
+                        -- term.clearLine()
+                        -- term.write("Ticks: " .. split[2])
+                        -- -- set next line to days :: hours :: mins
+                        -- local ticks = tonumber(split[2])
+                        -- local time = ticksToTime(ticks)
+                        -- term.setCursorPos(1, yOffset + 1)
+                        -- term.clearLine()
+                        -- local timeString = "Day: " .. time.days .. " Hour: " .. time.hours .. " Min: " .. time.minutes
+                        -- term.write(timeString)
+                        -- -- other line to phase of the day
+                        -- term.setCursorPos(1, yOffset + 2)
+                        -- term.clearLine()
+                        -- -- get % through phase
+                        -- local phaseInfo = getPhaseOfDay(ticks % 24000)
+                        -- local phaseString = "Phase: " .. phaseInfo.phase .. " (" .. phaseInfo.percentThroughPhase .. "%)"
+                        -- term.write(phaseString)
+                        clientOtherInfo["time"] = split[2]
                     elseif split[1] == "6" then
                         -- MOON UPDATE
-                        term.write("Moon Update:")
-                        term.setCursorPos(1, yOffset)
-                        term.clearLine()
-                        term.write("Moon: " .. "(" .. split[2] .. ") " .. split[3])
+                        -- term.write("Moon Update:")
+                        -- term.setCursorPos(1, yOffset)
+                        -- term.clearLine()
+                        -- term.write("Moon: " .. "(" .. split[2] .. ") " .. split[3])
+                        clientOtherInfo["moon"] = {
+                            id = split[2],
+                            name = split[3]
+                        }
                     elseif split[1] == "7" then
                         -- ARMOR UPDATE
                         term.write("Armor Update:")
@@ -713,10 +726,88 @@ function tabHome()
 
                     end
 
+                    local bufIdx = 1
+                    -- render player info
+                    for k, v in pairs(clientPlayerInfo) do
+                        buffer[bufIdx] = "Player: " .. k
+                        bufIdx = bufIdx + 1
+                        buffer[bufIdx] = "X: " .. v.x .. " Y: " .. v.y .. " Z: " .. v.z
+                        bufIdx = bufIdx + 1
+                        buffer[bufIdx] = "Pitch: " .. v.pitch .. " Yaw: " .. v.yaw
+                        bufIdx = bufIdx + 1
+                    end
+
+                    -- render player updates
+                    for k, v in pairs(clientPlayerUpdates) do
+                        if v.type == "DIM" then
+                            buffer[bufIdx] = "Player: " .. v.player .. " changed dimension from " .. v.from .. " to " .. v.to
+                            bufIdx = bufIdx + 1
+                        elseif v.type == "JOIN" then
+                            buffer[bufIdx] = "Player: " .. v.player .. " joined"
+                            bufIdx = bufIdx + 1
+                        elseif v.type == "LEAVE" then
+                            buffer[bufIdx] = "Player: " .. v.player .. " left"
+                            bufIdx = bufIdx + 1
+                        end
+                    end
+
+                    -- render time
+                    if (clientOtherInfo["time"]) then
+                        local ticks = tonumber(clientOtherInfo["time"])
+                        local time = ticksToTime(ticks)
+                        local ticksInDay = ticks % 24000
+                        buffer[bufIdx] = "Day: " .. time.days .. " Hour: " .. time.hours .. " Min: " .. time.minutes
+                        bufIdx = bufIdx + 1
+                        local phaseInfo = getPhaseOfDay(ticksInDay)
+                        buffer[bufIdx] = "Phase: " .. phaseInfo.phase .. " (" .. phaseInfo.percentThroughPhase .. "%)"
+                        bufIdx = bufIdx + 1
+                    else 
+                        buffer[bufIdx] = "Time: N/A"
+                        bufIdx = bufIdx + 1
+                    end
+
+                    -- render moon
+                    if (clientOtherInfo["moon"]) then
+                        buffer[bufIdx] = "Moon: " .. "(" .. clientOtherInfo["moon"].id .. ") " .. clientOtherInfo["moon"].name
+                        bufIdx = bufIdx + 1
+                    else
+                        buffer[bufIdx] = "Moon: N/A"
+                        bufIdx = bufIdx + 1
+                    end
+
+                    -- print scrollOffset at yOffset 2
+                    term.setCursorPos(1, 2)
+                    term.clearLine()
+                    term.write("Scroll Offset: " .. scrollOffset)
+
+                    -- render buffer
+                    local yOffset = 3
+                    renderBuffer(buffer, yOffset, scrollOffset)
+
                     -- else if q or < or >, then quit
                 elseif event[1] == "key" then
                     if event[2] == keys.q or event[2] == keys.left or event[2] == keys.right then
                         inLoop = false
+                    end
+
+                    local updateScroll = false
+                    -- check for up or down
+                    if event[2] == keys.up then
+                        -- [!] scroll up
+                        if scrollOffset > 0 then
+                            scrollOffset = scrollOffset - 1
+                            updateScroll = true
+                        end
+                    elseif event[2] == keys.down then
+                        -- [!] scroll down
+                        if scrollOffset < scrollMax then
+                            scrollOffset = scrollOffset + 1
+                            updateScroll = true
+                        end
+                    end
+
+                    if updateScroll then
+                        renderBuffer(buffer, 3, scrollOffset)
                     end
                 elseif event[1] == "mouse_click" then
                     if event[2] == 1 then
@@ -728,6 +819,29 @@ function tabHome()
     end
         
     return false
+end
+
+-- render buffer
+function renderBuffer(buffer, yOffset, scrollOffset)
+    for i = scrollOffset + 1, scrollOffset + termHeight do
+        if i <= #buffer then
+            term.setCursorPos(1, yOffset)
+            term.clearLine()
+            term.write(buffer[i])
+            yOffset = yOffset + 1
+        end
+    end
+    -- set blanks for rest of screen
+    for i = yOffset, termHeight do
+        term.setCursorPos(1, i)
+        term.clearLine()
+    end
+
+    -- update scrollMax
+    scrollMax = #buffer - (termHeight - 2)
+    if scrollMax < 0 then
+        scrollMax = 0
+    end
 end
 
 -- Function for about/info tab
@@ -1114,7 +1228,7 @@ function tabEnvironment()
     local time = ticksToTime(ticks)
     local ticksInDay = ticks % 24000
     local timeString = "Day: " .. time.days .. " Hour: " .. time.hours .. " Min: " .. time.minutes
-    local phaseInfo = getPhaseOfDay(ticks % 24000)
+    local phaseInfo = getPhaseOfDay(ticksInDay)
     local phaseString = "Phase: " .. phaseInfo.phase .. " (" .. phaseInfo.percentThroughPhase .. "%)"
     local moonString = "Moon: " .. envDetector.getMoonName()
 

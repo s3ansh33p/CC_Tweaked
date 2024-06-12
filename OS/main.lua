@@ -731,10 +731,16 @@ function tabHome()
                     for k, v in pairs(clientPlayerInfo) do
                         buffer[bufIdx] = "Player: " .. k
                         bufIdx = bufIdx + 1
-                        buffer[bufIdx] = "X: " .. v.x .. " Y: " .. v.y .. " Z: " .. v.z
-                        bufIdx = bufIdx + 1
-                        buffer[bufIdx] = "Pitch: " .. v.pitch .. " Yaw: " .. v.yaw
-                        bufIdx = bufIdx + 1
+                        -- if pitch 999
+                        if v.pitch == 999 then
+                            buffer[bufIdx] = "Position: N/A"
+                            bufIdx = bufIdx + 1
+                        else
+                            buffer[bufIdx] = "X: " .. v.x .. " Y: " .. v.y .. " Z: " .. v.z
+                            bufIdx = bufIdx + 1
+                            buffer[bufIdx] = "Pitch: " .. v.pitch .. " Yaw: " .. v.yaw
+                            bufIdx = bufIdx + 1
+                        end
                     end
 
                     -- render player updates
